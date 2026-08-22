@@ -18,6 +18,8 @@ describe('deviceApi against a mock bulb HTTP server', () => {
       mac: 'C4:5B:BE:7D:49:E0',
       hostname: 'kauf-bulb-7d49e0',
       title: 'Kauf Bulb 7d49e0',
+      firmwareVersion: '2.00(u)',
+      esphomeVersion: '2026.3.0',
     });
   });
 

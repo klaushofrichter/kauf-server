@@ -11,6 +11,8 @@ export interface PingResult {
   mac: string;
   hostname: string;
   title: string;
+  firmwareVersion: string | null;
+  esphomeVersion: string | null;
 }
 
 export interface DeviceState {
@@ -110,6 +112,8 @@ export async function pingBulb(ip: string): Promise<PingResult | null> {
           mac: parsed.mac_addr,
           hostname: parsed.hostname,
           title: parsed.title,
+          firmwareVersion: typeof parsed.proj_v === 'string' ? parsed.proj_v : null,
+          esphomeVersion: typeof parsed.esph_v === 'string' ? parsed.esph_v : null,
         };
       }
     } catch {
