@@ -22,6 +22,11 @@ Public web UI: https://bulbs.skylar.technology
   JSON body with any of `on`, `brightness` (0-100), `r`/`g`/`b` (0-255), and
   `transition` (ms). Returns the updated bulb, 404 for an unknown id, or 502
   if the bulb didn't respond.
+- `PUT /bulb?id=<id>` — protected the same way. Sets a bulb's nickname;
+  accepts a JSON body `{"name": "..."}`. Returns the updated bulb, 404 for
+  an unknown id, or 400 if `name` is missing/empty. The nickname is
+  persisted (unlike on/off/brightness/color, which are always read live
+  from the device) and is what `GET /bulbs`/`GET /bulb` return as `name`.
 - `GET /` — web UI, requires signing in with Google (restricted to emails in
   `ALLOWED_EMAILS`).
 - `POST /ui/bulb/:id/toggle` — web UI action that toggles a bulb on/off;
