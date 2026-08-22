@@ -1,0 +1,51 @@
+name: Production PR checks
+
+on:
+  pull_request:
+    branches: [production]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npm test
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          output: sarif-results
+          upload: never
+
+      - name: Fail if CodeQL found any results
+        run: |
+          set -euo pipefail
+          total=0
+          for f in sarif-results/*.sarif; do
+            count=$(jq '[.runs[].results[]] | length' "$f")
+            total=$((total + count))
+          done
+          echo "CodeQL findings: $total"
+          if [ "$total" -gt 0 ]; then
+            echo "::error::CodeQL found $total finding(s) — blocking merge"
+            exit 1
+          fi

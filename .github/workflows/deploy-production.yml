@@ -1,0 +1,79 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [production]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, k3s]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl and configure in-cluster access
+        run: |
+          set -euo pipefail
+          if ! command -v kubectl >/dev/null 2>&1; then
+            curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+            chmod +x kubectl
+            sudo mv kubectl /usr/local/bin/kubectl
+          fi
+          kubectl version --client
+          SA_DIR=/var/run/secrets/kubernetes.io/serviceaccount
+          kubectl config set-cluster in-cluster \
+            --server=https://kubernetes.default.svc \
+            --certificate-authority="${SA_DIR}/ca.crt"
+          kubectl config set-credentials deploy-sa --token="$(cat "${SA_DIR}/token")"
+          kubectl config set-context in-cluster --cluster=in-cluster --user=deploy-sa --namespace=bulbs
+          kubectl config use-context in-cluster
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/klaushofrichter/kauf-server:${{ github.sha }}
+
+      - name: Prune old Docker images
+        run: docker system prune -af --filter "until=168h" || true
+
+      - name: Update kube-setup manifest and deploy
+        env:
+          KUBE_SETUP_DEPLOY_TOKEN: ${{ secrets.KUBE_SETUP_DEPLOY_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/kube-setup-deploy
+          git clone "https://x-access-token:${KUBE_SETUP_DEPLOY_TOKEN}@github.com/klaushofrichter/kube-setup.git" /tmp/kube-setup-deploy
+          cd /tmp/kube-setup-deploy
+          sed -i "s|image: ghcr.io/klaushofrichter/kauf-server:.*|image: ghcr.io/klaushofrichter/kauf-server:${SHA}|" manifests/bulbs/bulbs-ksvc.yaml
+          grep -q "image: ghcr.io/klaushofrichter/kauf-server:${SHA}$" manifests/bulbs/bulbs-ksvc.yaml \
+            || { echo "::error::manifest image line did not update to ${SHA}"; exit 1; }
+          git config user.name "kauf-server-deploy-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add manifests/bulbs/bulbs-ksvc.yaml
+          if git diff --cached --quiet; then
+            echo "No manifest change (image tag already up to date) — skipping commit/push."
+          else
+            git commit -m "Deploy kauf-server ${SHA}"
+            git push
+          fi
+          kubectl apply -f manifests/bulbs/bulbs-ksvc.yaml
+          rm -rf /tmp/kube-setup-deploy
+
+      - name: Verify rollout
+        run: |
+          set -euo pipefail
+          kubectl wait --for=condition=Ready ksvc/bulbs -n bulbs --timeout=120s
+          kubectl get ksvc bulbs -n bulbs
