@@ -82,3 +82,15 @@ export function upsertBulb(info: UpsertInfo): StoredBulb {
 export function getBulb(id: string): StoredBulb | null {
   return loadBulbs().find((b) => b.id === id) ?? null;
 }
+
+export function renameBulb(id: string, name: string): StoredBulb | null {
+  const bulbs = loadBulbs();
+  const existing = bulbs.find((b) => b.id === id);
+  if (!existing) {
+    return null;
+  }
+
+  existing.name = name;
+  saveBulbs(bulbs);
+  return existing;
+}

@@ -1,4 +1,4 @@
-import { listBulbs, getBulb, StoredBulb } from './store';
+import { listBulbs, getBulb, renameBulb, StoredBulb } from './store';
 import { getState, setState, SetStateOptions } from './deviceApi';
 
 export interface BulbWithState {
@@ -55,6 +55,19 @@ export async function setBulbState(
   const success = await setState(stored.lastIp, stored.objectId, options);
   if (!success) {
     return { success: false };
+  }
+
+  const bulb = await withLiveState(stored);
+  return { success: true, bulb: bulb ?? undefined };
+}
+
+export async function renameBulbAndGetState(
+  id: string,
+  name: string
+): Promise<{ success: boolean; notFound?: boolean; bulb?: BulbWithState }> {
+  const stored = renameBulb(id, name);
+  if (!stored) {
+    return { success: false, notFound: true };
   }
 
   const bulb = await withLiveState(stored);

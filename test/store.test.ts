@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { loadBulbs, upsertBulb, getBulb } from '../src/bulbs/store';
+import { loadBulbs, upsertBulb, getBulb, renameBulb } from '../src/bulbs/store';
 
 describe('bulbs store', () => {
   let dataPath: string;
@@ -106,5 +106,30 @@ describe('bulbs store', () => {
     });
 
     expect(getBulb('kauf-bulb-7d49e0')?.mac).toBe('C4:5B:BE:7D:49:E0');
+  });
+
+  it('renameBulb updates the name and preserves everything else', () => {
+    const created = upsertBulb({
+      mac: 'C4:5B:BE:7D:49:E0',
+      hostname: 'kauf-bulb-7d49e0',
+      title: 'Kauf Bulb 7d49e0',
+      ip: '192.168.1.26',
+      objectId: 'kauf_bulb_7d49e0',
+    });
+
+    const renamed = renameBulb('kauf-bulb-7d49e0', 'Living Room Lamp');
+
+    expect(renamed?.name).toBe('Living Room Lamp');
+    expect(renamed?.id).toBe(created.id);
+    expect(renamed?.mac).toBe(created.mac);
+    expect(renamed?.objectId).toBe(created.objectId);
+    expect(renamed?.firstDiscovered).toBe(created.firstDiscovered);
+    expect(renamed?.lastSeen).toBe(created.lastSeen);
+    expect(renamed?.lastIp).toBe(created.lastIp);
+    expect(loadBulbs()[0].name).toBe('Living Room Lamp');
+  });
+
+  it('renameBulb returns null for an unknown id', () => {
+    expect(renameBulb('nonexistent', 'New Name')).toBeNull();
   });
 });

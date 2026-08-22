@@ -6,10 +6,16 @@ vi.mock('../src/bulbs/service', () => ({
   listWithLiveState: vi.fn(),
   getWithLiveState: vi.fn(),
   setBulbState: vi.fn(),
+  renameBulbAndGetState: vi.fn(),
 }));
 
 import { createApp } from '../src/app';
-import { listWithLiveState, getWithLiveState, setBulbState } from '../src/bulbs/service';
+import {
+  listWithLiveState,
+  getWithLiveState,
+  setBulbState,
+  renameBulbAndGetState,
+} from '../src/bulbs/service';
 
 const TOKEN = 'test-bulbs-token';
 const SAMPLE_BULB = {
@@ -142,6 +148,76 @@ describe('POST /bulb', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(SAMPLE_BULB);
     expect(setBulbState).toHaveBeenCalledWith('kauf-bulb-7d49e0', { on: true, brightness: 55 });
+  });
+});
+
+describe('PUT /bulb', () => {
+  it('returns 401 with no Authorization header', async () => {
+    const app = createApp();
+    const response = await request(app).put('/bulb?id=kauf-bulb-7d49e0').send({ name: 'x' });
+    expect(response.status).toBe(401);
+  });
+
+  it('returns 400 when name is missing', async () => {
+    const app = createApp();
+
+    const response = await request(app)
+      .put('/bulb?id=kauf-bulb-7d49e0')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'invalid request' });
+  });
+
+  it('returns 400 when name is not a string', async () => {
+    const app = createApp();
+
+    const response = await request(app)
+      .put('/bulb?id=kauf-bulb-7d49e0')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ name: 42 });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('returns 400 when name is empty', async () => {
+    const app = createApp();
+
+    const response = await request(app)
+      .put('/bulb?id=kauf-bulb-7d49e0')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ name: '' });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('returns 404 for an unknown id', async () => {
+    vi.mocked(renameBulbAndGetState).mockResolvedValue({ success: false, notFound: true });
+    const app = createApp();
+
+    const response = await request(app)
+      .put('/bulb?id=nonexistent')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ name: 'New Name' });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'not found' });
+  });
+
+  it('returns 200 with the renamed bulb on success', async () => {
+    const renamed = { ...SAMPLE_BULB, name: 'Living Room Lamp' };
+    vi.mocked(renameBulbAndGetState).mockResolvedValue({ success: true, bulb: renamed });
+    const app = createApp();
+
+    const response = await request(app)
+      .put('/bulb?id=kauf-bulb-7d49e0')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ name: 'Living Room Lamp' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(renamed);
+    expect(renameBulbAndGetState).toHaveBeenCalledWith('kauf-bulb-7d49e0', 'Living Room Lamp');
   });
 });
 

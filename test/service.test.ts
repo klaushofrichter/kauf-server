@@ -3,15 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../src/bulbs/store', () => ({
   listBulbs: vi.fn(),
   getBulb: vi.fn(),
+  renameBulb: vi.fn(),
 }));
 vi.mock('../src/bulbs/deviceApi', () => ({
   getState: vi.fn(),
   setState: vi.fn(),
 }));
 
-import { listBulbs, getBulb } from '../src/bulbs/store';
+import { listBulbs, getBulb, renameBulb } from '../src/bulbs/store';
 import { getState, setState } from '../src/bulbs/deviceApi';
-import { listWithLiveState, getWithLiveState, setBulbState } from '../src/bulbs/service';
+import { listWithLiveState, getWithLiveState, setBulbState, renameBulbAndGetState } from '../src/bulbs/service';
 
 const STORED = {
   id: 'kauf-bulb-7d49e0',
@@ -124,5 +125,32 @@ describe('setBulbState', () => {
       g: 0,
       b: 0,
     });
+  });
+});
+
+describe('renameBulbAndGetState', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('reports notFound for an unknown id', async () => {
+    vi.mocked(renameBulb).mockReturnValue(null);
+
+    expect(await renameBulbAndGetState('nonexistent', 'New Name')).toEqual({
+      success: false,
+      notFound: true,
+    });
+  });
+
+  it('renames and returns the merged bulb with live state on success', async () => {
+    const renamed = { ...STORED, name: 'Living Room Lamp' };
+    vi.mocked(renameBulb).mockReturnValue(renamed);
+    vi.mocked(getState).mockResolvedValue({ on: true, brightness: 55, r: 39, g: 183, b: 255 });
+
+    const result = await renameBulbAndGetState('kauf-bulb-7d49e0', 'Living Room Lamp');
+
+    expect(renameBulb).toHaveBeenCalledWith('kauf-bulb-7d49e0', 'Living Room Lamp');
+    expect(result.success).toBe(true);
+    expect(result.bulb?.name).toBe('Living Room Lamp');
   });
 });

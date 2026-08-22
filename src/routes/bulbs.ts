@@ -3,7 +3,12 @@ import { Router, Request, Response } from 'express';
 import { requireToken } from '../middleware/requireToken';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { createAuthRateLimit } from '../middleware/authRateLimit';
-import { listWithLiveState, getWithLiveState, setBulbState } from '../bulbs/service';
+import {
+  listWithLiveState,
+  getWithLiveState,
+  setBulbState,
+  renameBulbAndGetState,
+} from '../bulbs/service';
 import { SetStateOptions } from '../bulbs/deviceApi';
 
 export const bulbsRouter = Router();
@@ -105,6 +110,34 @@ bulbsRouter.post(
 
     if (!result.success) {
       res.status(502).json({ error: 'bulb unreachable' });
+      return;
+    }
+
+    res.status(200).json(result.bulb);
+  })
+);
+
+bulbsRouter.put(
+  '/bulb',
+  createAuthRateLimit(),
+  requireBulbsToken,
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = req.query.id;
+    if (typeof id !== 'string') {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
+
+    const name = (req.body ?? {}).name;
+    if (typeof name !== 'string' || name.length === 0) {
+      res.status(400).json({ error: 'invalid request' });
+      return;
+    }
+
+    const result = await renameBulbAndGetState(id, name);
+
+    if (result.notFound) {
+      res.status(404).json({ error: 'not found' });
       return;
     }
 
