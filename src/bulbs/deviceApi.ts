@@ -26,6 +26,12 @@ export interface SetStateOptions {
   transition?: number;
 }
 
+interface LightStateResponse {
+  state: string;
+  brightness?: number;
+  color?: { r?: number; g?: number; b?: number };
+}
+
 async function readSseFrames(
   ip: string,
   timeoutMs: number,
@@ -132,7 +138,7 @@ export async function getState(ip: string, objectId: string): Promise<DeviceStat
     const response = await fetch(`http://${ip}/light/${objectId}`, { signal: controller.signal });
     if (!response.ok) return null;
 
-    const data = await response.json();
+    const data = (await response.json()) as LightStateResponse;
     return {
       on: data.state === 'ON',
       brightness: typeof data.brightness === 'number' ? Math.round((data.brightness / 255) * 100) : null,
