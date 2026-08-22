@@ -13,6 +13,7 @@ export function createApp(): Express {
   // express-rate-limit keys per-client instead of on the proxy's IP).
   app.set('trust proxy', 1);
   app.use(cookieParser());
+  app.use(express.json());
   app.use(healthRouter);
   app.use(bulbsRouter);
   app.use(authRouter);
