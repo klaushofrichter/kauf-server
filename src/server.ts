@@ -1,6 +1,7 @@
 // src/server.ts
 import { createApp } from './app';
 import { assertRequiredEnv } from './config';
+import { startDiscoveryLoop } from './bulbs/discovery';
 
 assertRequiredEnv();
 
@@ -9,4 +10,5 @@ const app = createApp();
 
 app.listen(port, () => {
   console.log(`kauf-server listening on port ${port}`);
+  startDiscoveryLoop();
 });
