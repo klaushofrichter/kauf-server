@@ -1218,10 +1218,13 @@ ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
+COPY public ./public
 USER node
 EXPOSE 8080
 CMD ["node", "dist/server.js"]
 ```
+
+`public/favicon.png` (added in Task 9) is read at runtime via a path relative to `__dirname` (`dist/routes/../../public/favicon.png` → `/app/public/favicon.png`), not compiled by `tsc` — so it needs its own `COPY` into the final stage, alongside the compiled `dist/`.
 
 - [ ] **Step 2: Build the image locally**
 
@@ -1245,12 +1248,13 @@ curl -sf http://localhost:8080/health
 echo
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/bulbs
 curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer smoke-test-bulbs-token" http://localhost:8080/bulbs
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/favicon.png
 
 docker logs kauf-server-smoketest
 docker rm -f kauf-server-smoketest
 ```
 
-Expected: `/health` returns `{"status":"ok"}` (HTTP 200); unauthenticated `/bulbs` returns `401`; authenticated `/bulbs` returns `200`; container logs show `kauf-server listening on port 8080` with no errors.
+Expected: `/health` returns `{"status":"ok"}` (HTTP 200); unauthenticated `/bulbs` returns `401`; authenticated `/bulbs` returns `200`; `/favicon.png` returns `200`; container logs show `kauf-server listening on port 8080` with no errors.
 
 - [ ] **Step 4: Commit**
 
@@ -1289,6 +1293,7 @@ Public web UI: https://bulbs.skylar.technology
   `ALLOWED_EMAILS`).
 - `GET /auth/google/callback`, `GET /auth/logout` — OAuth plumbing for the
   web UI.
+- `GET /favicon.png` — unprotected, serves the site favicon.
 
 ## Development
 
