@@ -977,15 +977,25 @@ git commit -m "Add Google OAuth callback and logout routes"
 ## Task 9: Web UI page and index route
 
 **Files:**
+- Create: `public/favicon.png` (binary copy of `assets/bulb.png` — the source asset already present at the repo root, provided by the user)
 - Create: `src/views/page.ts`
 - Create: `src/routes/index.ts`
 - Test: `test/index.test.ts`
 
 **Interfaces:**
 - Consumes: `requireAuth` from Task 5, `createAuthRateLimit` from Task 5.
-- Produces: `renderPage(email: string): string`; `indexRouter: Router` mounted on `GET /`, protected by `requireAuth`.
+- Produces: `renderPage(email: string): string`; `indexRouter: Router` mounted on `GET /` (protected by `requireAuth`) and `GET /favicon.png` (unprotected — must not trigger the OAuth redirect, since browsers request it automatically before any sign-in).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Copy the favicon into `public/favicon.png`**
+
+```bash
+mkdir -p public
+cp assets/bulb.png public/favicon.png
+```
+
+`public/` sits at the repo root alongside `src/`, not inside it — `src/routes/index.ts` reads it via a path relative to `__dirname` that resolves the same way whether the code is run from `src/` (via `tsx` in dev) or from `dist/` (compiled, in production), since both are exactly one directory level under the repo root.
+
+- [ ] **Step 2: Write the failing test**
 
 ```typescript
 // test/index.test.ts
@@ -1023,14 +1033,25 @@ describe('GET /', () => {
     expect(response.text).toContain('/auth/logout');
   });
 });
+
+describe('GET /favicon.png', () => {
+  it('returns the favicon image with no auth required', async () => {
+    const app = createApp();
+    const response = await request(app).get('/favicon.png');
+
+    expect(response.status).toBe(200);
+    expect(response.type).toBe('image/png');
+    expect(response.body.length).toBeGreaterThan(0);
+  });
+});
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run test to verify it fails**
 
 Run: `npx vitest run test/index.test.ts`
 Expected: FAIL — cannot find module `../src/app`.
 
-- [ ] **Step 3: Write `src/views/page.ts`**
+- [ ] **Step 4: Write `src/views/page.ts`**
 
 ```typescript
 // src/views/page.ts
@@ -1041,6 +1062,7 @@ export function renderPage(email: string): string {
   <meta charset="utf-8">
   <title>Kauf Bulbs</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" href="/favicon.png">
   <style>
     body { font-family: system-ui, sans-serif; max-width: 640px; margin: 3rem auto; padding: 0 1rem; }
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
@@ -1064,11 +1086,13 @@ export function renderPage(email: string): string {
 }
 ```
 
-- [ ] **Step 4: Write `src/routes/index.ts`**
+- [ ] **Step 5: Write `src/routes/index.ts`**
 
 ```typescript
 // src/routes/index.ts
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { renderPage } from '../views/page';
 import { requireAuth } from '../middleware/requireAuth';
 import { createAuthRateLimit } from '../middleware/authRateLimit';
@@ -1076,19 +1100,26 @@ import { verifySession } from '../session';
 
 export const indexRouter = Router();
 
+const FAVICON_PATH = path.join(__dirname, '../../public/favicon.png');
+const FAVICON = fs.readFileSync(FAVICON_PATH);
+
+indexRouter.get('/favicon.png', (_req: Request, res: Response) => {
+  res.status(200).type('image/png').send(FAVICON);
+});
+
 indexRouter.get('/', createAuthRateLimit(), requireAuth, (req: Request, res: Response) => {
   const session = verifySession(req.cookies?.session);
   res.status(200).type('html').send(renderPage(session?.email ?? ''));
 });
 ```
 
-(`requireAuth` already guarantees a valid session by the time this handler runs, so `session` is non-null in practice — the `?? ''` fallback only guards TypeScript's static type.)
+(`requireAuth` already guarantees a valid session by the time the `/` handler runs, so `session` is non-null in practice — the `?? ''` fallback only guards TypeScript's static type. `FAVICON` is read once at module load, not per-request. `__dirname` in dev is `<repo-root>/src/routes`; in production it's `<repo-root>/dist/routes` — `../../public/favicon.png` resolves to `<repo-root>/public/favicon.png` in both cases.)
 
-- [ ] **Step 5: Commit** (test stays red until Task 10)
+- [ ] **Step 6: Commit** (test stays red until Task 10)
 
 ```bash
-git add src/views/page.ts src/routes/index.ts test/index.test.ts
-git commit -m "Add web UI page showing signed-in user and sign-out link"
+git add public/favicon.png src/views/page.ts src/routes/index.ts test/index.test.ts
+git commit -m "Add web UI page with favicon, showing signed-in user and sign-out link"
 ```
 
 ---
