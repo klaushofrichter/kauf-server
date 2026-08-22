@@ -189,14 +189,23 @@ hardcoded `{bulbs: []}`).
   `404 {"error": "not found"}`.
 
 - **`POST /bulb?id=<id>`** → body `{on?, brightness?, r?, g?, b?, transition?}`,
-  all fields optional (only the provided ones change on the device, matching
-  the device's own `turn_on` semantics — an empty body is valid and is a
-  no-op beyond whatever `on`/`off` state change is implied). `brightness`
-  outside 0–100, or `r`/`g`/`b` outside 0–255 → `400 {"error": "invalid
-  request"}`. Unknown `id` → `404 {"error": "not found"}`. Known bulb that
-  fails to respond to the device call → `502 {"error": "bulb
-  unreachable"}`. Success → `200` with the same shape as a `GET /bulb?id=`
-  response (state re-fetched live after the change).
+  all fields optional. `transition` defaults to `1000` (ms) when omitted,
+  matching the sibling project's default — never sent as `0`, since an
+  instant transition on every call would be a surprising default.
+  Dispatch logic: `on === false` → call the device's `turn_off` endpoint
+  (brightness/r/g/b are ignored — ESPHome's `turn_off` doesn't accept
+  them, matching the device API). Anything else (`on === true`, or `on`
+  omitted entirely) → call `turn_on` with whichever of
+  `brightness`/`r`/`g`/`b` were provided (omitted ones leave that
+  attribute unchanged on the device). This means setting only
+  `{brightness: 50}` on a currently-off bulb turns it on — matching the
+  sibling project's behavior; there's no ESPHome endpoint to change
+  attributes without an implicit power-on. `brightness` outside 0–100, or
+  `r`/`g`/`b` outside 0–255 → `400 {"error": "invalid request"}`. Unknown
+  `id` → `404 {"error": "not found"}`. Known bulb that fails to respond to
+  the device call → `502 {"error": "bulb unreachable"}`. Success → `200`
+  with the same shape as a `GET /bulb?id=` response (state re-fetched live
+  after the change).
 
 ## Web UI
 
@@ -209,11 +218,15 @@ The button posts to a **separate** route namespace,
 `POST /ui/bulb/:id/toggle`, gated by the existing `requireAuth` session-cookie
 middleware — not the public Bearer-token API. This keeps the browser from
 ever needing to know the API token (a bad practice `<script>`-embedding a
-secret would otherwise require). Both this route and the public
-`POST /bulb?id=` route call the same underlying `src/bulbs/service.ts`
-functions — only the auth gate differs. On failure the toggle route
-redirects back to `/` regardless (the next page load reflects live state);
-no separate error UI in this phase.
+secret would otherwise require). The toggle handler fetches the bulb's
+current live state first (`getWithLiveState(id)`), then calls
+`setBulbState(id, {on: !currentState.on})` — flipping whatever the bulb's
+actual current state is, not a value trusted from the request. Both this
+route and the public `POST /bulb?id=` route call the same underlying
+`src/bulbs/service.ts` functions — only the auth gate differs. On failure
+(unknown id, bulb unreachable) the toggle route redirects back to `/`
+regardless (the next page load reflects live state); no separate error UI
+in this phase.
 
 ## Testing
 
