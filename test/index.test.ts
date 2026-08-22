@@ -4,17 +4,33 @@ import request from 'supertest';
 vi.mock('../src/bulbs/service', () => ({
   listWithLiveState: vi.fn(),
   getWithLiveState: vi.fn(),
+  getFullDetail: vi.fn(),
   setBulbState: vi.fn(),
+  setAllBulbsState: vi.fn(),
+}));
+
+vi.mock('../src/bulbs/discovery', () => ({
+  runDiscoveryScan: vi.fn(),
 }));
 
 import { createApp } from '../src/app';
 import { signSession } from '../src/session';
-import { listWithLiveState, getWithLiveState, setBulbState } from '../src/bulbs/service';
+import {
+  listWithLiveState,
+  getWithLiveState,
+  getFullDetail,
+  setBulbState,
+  setAllBulbsState,
+} from '../src/bulbs/service';
+import { runDiscoveryScan } from '../src/bulbs/discovery';
 
 beforeEach(() => {
   vi.mocked(listWithLiveState).mockReset().mockResolvedValue([]);
   vi.mocked(getWithLiveState).mockReset();
+  vi.mocked(getFullDetail).mockReset();
   vi.mocked(setBulbState).mockReset();
+  vi.mocked(setAllBulbsState).mockReset();
+  vi.mocked(runDiscoveryScan).mockReset();
 });
 
 describe('GET /', () => {
@@ -163,5 +179,176 @@ describe('POST /ui/bulb/:id/toggle', () => {
     expect(response.status).toBe(302);
     expect(response.headers.location).toBe('/');
     expect(setBulbState).not.toHaveBeenCalled();
+  });
+});
+
+const DETAIL_BULB = {
+  id: 'kauf-bulb-7d49e0',
+  name: 'Kauf Bulb 7d49e0',
+  mac: 'C4:5B:BE:7D:49:E0',
+  lastIp: '192.168.1.26',
+  online: true,
+  on: true,
+  brightness: 55,
+  r: 39,
+  g: 183,
+  b: 255,
+  firmwareVersion: '2.00(u)',
+  esphomeVersion: '2026.3.0',
+};
+
+describe('GET /ui/bulb/:id', () => {
+  it('redirects to Google sign-in when there is no session cookie', async () => {
+    const app = createApp();
+    const response = await request(app).get('/ui/bulb/kauf-bulb-7d49e0');
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain('accounts.google.com');
+  });
+
+  it('returns 404 for an unknown id', async () => {
+    vi.mocked(getFullDetail).mockResolvedValue(null);
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/ui/bulb/nonexistent').set('Cookie', cookie);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'not found' });
+  });
+
+  it('returns the full detail JSON for a known id', async () => {
+    vi.mocked(getFullDetail).mockResolvedValue(DETAIL_BULB);
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/ui/bulb/kauf-bulb-7d49e0').set('Cookie', cookie);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(DETAIL_BULB);
+  });
+});
+
+describe('POST /ui/bulb/:id/set', () => {
+  it('redirects to Google sign-in when there is no session cookie', async () => {
+    const app = createApp();
+    const response = await request(app).post('/ui/bulb/kauf-bulb-7d49e0/set').send({ on: true });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain('accounts.google.com');
+  });
+
+  it('returns 400 for an out-of-range brightness', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/kauf-bulb-7d49e0/set')
+      .set('Cookie', cookie)
+      .send({ brightness: 150 });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'invalid request' });
+  });
+
+  it('returns 404 for an unknown id', async () => {
+    vi.mocked(setBulbState).mockResolvedValue({ success: false, notFound: true });
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/nonexistent/set')
+      .set('Cookie', cookie)
+      .send({ on: true });
+
+    expect(response.status).toBe(404);
+  });
+
+  it('returns 502 when the bulb does not respond', async () => {
+    vi.mocked(setBulbState).mockResolvedValue({ success: false });
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/kauf-bulb-7d49e0/set')
+      .set('Cookie', cookie)
+      .send({ on: true });
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({ error: 'bulb unreachable' });
+  });
+
+  it('returns the re-fetched detail on success', async () => {
+    vi.mocked(setBulbState).mockResolvedValue({ success: true, bulb: DETAIL_BULB });
+    vi.mocked(getFullDetail).mockResolvedValue(DETAIL_BULB);
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/kauf-bulb-7d49e0/set')
+      .set('Cookie', cookie)
+      .send({ brightness: 55 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(DETAIL_BULB);
+    expect(setBulbState).toHaveBeenCalledWith('kauf-bulb-7d49e0', { brightness: 55 });
+  });
+});
+
+describe('POST /ui/bulbs/on', () => {
+  it('redirects to Google sign-in when there is no session cookie', async () => {
+    const app = createApp();
+    const response = await request(app).post('/ui/bulbs/on');
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain('accounts.google.com');
+  });
+
+  it('calls setAllBulbsState(true) and redirects to /', async () => {
+    vi.mocked(setAllBulbsState).mockResolvedValue([]);
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).post('/ui/bulbs/on').set('Cookie', cookie);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe('/');
+    expect(setAllBulbsState).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('POST /ui/bulbs/off', () => {
+  it('calls setAllBulbsState(false) and redirects to /', async () => {
+    vi.mocked(setAllBulbsState).mockResolvedValue([]);
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).post('/ui/bulbs/off').set('Cookie', cookie);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe('/');
+    expect(setAllBulbsState).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('POST /ui/discover', () => {
+  it('redirects to Google sign-in when there is no session cookie', async () => {
+    const app = createApp();
+    const response = await request(app).post('/ui/discover');
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain('accounts.google.com');
+  });
+
+  it('runs a scan and redirects to /', async () => {
+    vi.mocked(runDiscoveryScan).mockResolvedValue(1);
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).post('/ui/discover').set('Cookie', cookie);
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe('/');
+    expect(runDiscoveryScan).toHaveBeenCalled();
   });
 });
