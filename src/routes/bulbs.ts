@@ -5,11 +5,13 @@ import { asyncHandler } from '../middleware/asyncHandler';
 import { createAuthRateLimit } from '../middleware/authRateLimit';
 import {
   listWithLiveState,
-  getWithLiveState,
+  getFullDetail,
   setBulbState,
   renameBulbAndGetState,
+  setAllBulbsState,
 } from '../bulbs/service';
-import { SetStateOptions } from '../bulbs/deviceApi';
+import { runDiscoveryScan } from '../bulbs/discovery';
+import { parseSetOptions } from '../bulbs/validation';
 
 export const bulbsRouter = Router();
 const requireBulbsToken = requireToken('BULBS_API_TOKENS');
@@ -21,37 +23,6 @@ const requireBulbsToken = requireToken('BULBS_API_TOKENS');
 // or occasional automation, while still capping the blast radius of a
 // leaked token or malfunctioning client. Kept identical to the UI limiter
 // for consistency rather than inventing a bespoke value.
-
-function parseSetBody(body: Record<string, unknown>): { valid: boolean; options?: SetStateOptions } {
-  const options: SetStateOptions = {};
-
-  if (body.on !== undefined) {
-    if (typeof body.on !== 'boolean') return { valid: false };
-    options.on = body.on;
-  }
-
-  if (body.brightness !== undefined) {
-    if (typeof body.brightness !== 'number' || body.brightness < 0 || body.brightness > 100) {
-      return { valid: false };
-    }
-    options.brightness = body.brightness;
-  }
-
-  for (const key of ['r', 'g', 'b'] as const) {
-    const value = body[key];
-    if (value !== undefined) {
-      if (typeof value !== 'number' || value < 0 || value > 255) return { valid: false };
-      options[key] = value;
-    }
-  }
-
-  if (body.transition !== undefined) {
-    if (typeof body.transition !== 'number' || body.transition < 0) return { valid: false };
-    options.transition = body.transition;
-  }
-
-  return { valid: true, options };
-}
 
 bulbsRouter.get(
   '/bulbs',
@@ -74,7 +45,7 @@ bulbsRouter.get(
       return;
     }
 
-    const bulb = await getWithLiveState(id);
+    const bulb = await getFullDetail(id);
     if (!bulb) {
       res.status(404).json({ error: 'not found' });
       return;
@@ -95,7 +66,7 @@ bulbsRouter.post(
       return;
     }
 
-    const parsed = parseSetBody(req.body ?? {});
+    const parsed = parseSetOptions(req.body ?? {});
     if (!parsed.valid) {
       res.status(400).json({ error: 'invalid request' });
       return;
@@ -142,5 +113,36 @@ bulbsRouter.put(
     }
 
     res.status(200).json(result.bulb);
+  })
+);
+
+bulbsRouter.post(
+  '/bulbs/on',
+  createAuthRateLimit(),
+  requireBulbsToken,
+  asyncHandler(async (_req: Request, res: Response) => {
+    const results = await setAllBulbsState(true);
+    res.status(200).json({ results });
+  })
+);
+
+bulbsRouter.post(
+  '/bulbs/off',
+  createAuthRateLimit(),
+  requireBulbsToken,
+  asyncHandler(async (_req: Request, res: Response) => {
+    const results = await setAllBulbsState(false);
+    res.status(200).json({ results });
+  })
+);
+
+bulbsRouter.post(
+  '/discover',
+  createAuthRateLimit(),
+  requireBulbsToken,
+  asyncHandler(async (_req: Request, res: Response) => {
+    const bulbsFound = await runDiscoveryScan();
+    const bulbs = await listWithLiveState();
+    res.status(200).json({ bulbsFound, bulbs });
   })
 );

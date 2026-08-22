@@ -4,18 +4,25 @@ import request from 'supertest';
 
 vi.mock('../src/bulbs/service', () => ({
   listWithLiveState: vi.fn(),
-  getWithLiveState: vi.fn(),
+  getFullDetail: vi.fn(),
   setBulbState: vi.fn(),
   renameBulbAndGetState: vi.fn(),
+  setAllBulbsState: vi.fn(),
+}));
+
+vi.mock('../src/bulbs/discovery', () => ({
+  runDiscoveryScan: vi.fn(),
 }));
 
 import { createApp } from '../src/app';
 import {
   listWithLiveState,
-  getWithLiveState,
+  getFullDetail,
   setBulbState,
   renameBulbAndGetState,
+  setAllBulbsState,
 } from '../src/bulbs/service';
+import { runDiscoveryScan } from '../src/bulbs/discovery';
 
 const TOKEN = 'test-bulbs-token';
 const SAMPLE_BULB = {
@@ -29,6 +36,12 @@ const SAMPLE_BULB = {
   r: 39,
   g: 183,
   b: 255,
+};
+
+const SAMPLE_BULB_DETAIL = {
+  ...SAMPLE_BULB,
+  firmwareVersion: '2.00(u)',
+  esphomeVersion: '2026.3.0',
 };
 
 describe('GET /bulbs', () => {
@@ -57,7 +70,7 @@ describe('GET /bulb', () => {
   });
 
   it('returns 404 for an unknown id', async () => {
-    vi.mocked(getWithLiveState).mockResolvedValue(null);
+    vi.mocked(getFullDetail).mockResolvedValue(null);
     const app = createApp();
 
     const response = await request(app)
@@ -69,7 +82,7 @@ describe('GET /bulb', () => {
   });
 
   it('returns the bulb for a known id', async () => {
-    vi.mocked(getWithLiveState).mockResolvedValue(SAMPLE_BULB);
+    vi.mocked(getFullDetail).mockResolvedValue(SAMPLE_BULB_DETAIL);
     const app = createApp();
 
     const response = await request(app)
@@ -77,7 +90,7 @@ describe('GET /bulb', () => {
       .set('Authorization', `Bearer ${TOKEN}`);
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual(SAMPLE_BULB);
+    expect(response.body).toEqual(SAMPLE_BULB_DETAIL);
   });
 });
 
@@ -218,6 +231,69 @@ describe('PUT /bulb', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(renamed);
     expect(renameBulbAndGetState).toHaveBeenCalledWith('kauf-bulb-7d49e0', 'Living Room Lamp');
+  });
+});
+
+describe('POST /bulbs/on', () => {
+  it('returns 401 with no Authorization header', async () => {
+    const app = createApp();
+    const response = await request(app).post('/bulbs/on');
+    expect(response.status).toBe(401);
+  });
+
+  it('returns per-bulb results for a valid token', async () => {
+    vi.mocked(setAllBulbsState).mockResolvedValue([
+      { id: 'kauf-bulb-7d49e0', success: true },
+      { id: 'kauf-bulb-abc123', success: false },
+    ]);
+    const app = createApp();
+
+    const response = await request(app).post('/bulbs/on').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      results: [
+        { id: 'kauf-bulb-7d49e0', success: true },
+        { id: 'kauf-bulb-abc123', success: false },
+      ],
+    });
+    expect(setAllBulbsState).toHaveBeenCalledWith(true);
+  });
+});
+
+describe('POST /bulbs/off', () => {
+  it('returns 401 with no Authorization header', async () => {
+    const app = createApp();
+    const response = await request(app).post('/bulbs/off');
+    expect(response.status).toBe(401);
+  });
+
+  it('calls setAllBulbsState with false', async () => {
+    vi.mocked(setAllBulbsState).mockResolvedValue([]);
+    const app = createApp();
+
+    await request(app).post('/bulbs/off').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(setAllBulbsState).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('POST /discover', () => {
+  it('returns 401 with no Authorization header', async () => {
+    const app = createApp();
+    const response = await request(app).post('/discover');
+    expect(response.status).toBe(401);
+  });
+
+  it('runs a scan and returns the updated list', async () => {
+    vi.mocked(runDiscoveryScan).mockResolvedValue(1);
+    vi.mocked(listWithLiveState).mockResolvedValue([SAMPLE_BULB]);
+    const app = createApp();
+
+    const response = await request(app).post('/discover').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ bulbsFound: 1, bulbs: [SAMPLE_BULB] });
   });
 });
 
