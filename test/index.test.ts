@@ -81,7 +81,7 @@ describe('GET /', () => {
     expect(response.text).toContain('/auth/logout');
   });
 
-  it('lists discovered bulbs with their status', async () => {
+  it('lists discovered bulbs as cards with a data-id and the toggle form', async () => {
     vi.mocked(listWithLiveState).mockResolvedValue([
       {
         id: 'kauf-bulb-7d49e0',
@@ -101,8 +101,31 @@ describe('GET /', () => {
 
     const response = await request(app).get('/').set('Cookie', cookie);
 
+    expect(response.text).toContain('data-id="kauf-bulb-7d49e0"');
     expect(response.text).toContain('Kauf Bulb 7d49e0');
     expect(response.text).toContain('/ui/bulb/kauf-bulb-7d49e0/toggle');
+  });
+
+  it('includes the toolbar buttons for refresh and bulk on/off', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/').set('Cookie', cookie);
+
+    expect(response.text).toContain('action="/ui/discover"');
+    expect(response.text).toContain('action="/ui/bulbs/on"');
+    expect(response.text).toContain('action="/ui/bulbs/off"');
+  });
+
+  it('includes the modal markup', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/').set('Cookie', cookie);
+
+    expect(response.text).toContain('id="bulb-modal"');
+    expect(response.text).toContain('id="modal-brightness"');
+    expect(response.text).toContain('id="modal-color"');
   });
 
   it('shows the empty-state message when no bulbs are discovered', async () => {
