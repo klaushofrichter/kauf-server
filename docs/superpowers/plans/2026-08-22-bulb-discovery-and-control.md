@@ -390,7 +390,260 @@ git commit -m "Add ESPHome device API client for Kauf bulbs"
 
 ---
 
-## Task 2: Bulb directory persistence
+## Task 2: Mock bulb HTTP server and integration tests
+
+Added mid-execution at the user's request: Task 1's tests mock Node's global
+`fetch` directly — precise for edge cases, but they never exercise a real
+HTTP round trip (URL construction, query-string encoding, actual SSE framing
+over a real socket). This task adds a small in-process HTTP server that
+speaks the same protocol as a real Kauf bulb (the `/events` SSE stream,
+`GET /light/<id>`, `POST /light/<id>/turn_on|turn_off`) closely enough to
+exercise `src/bulbs/deviceApi.ts` end-to-end against a real — if
+synthetic — server. It listens on `127.0.0.1` on an OS-assigned port, so
+it's self-contained and safe to run in CI (no real network, no dependency
+on the actual device).
+
+**Files:**
+- Create: `test/mockBulbServer.ts` (a test helper, not itself a test file — no `.test.ts` suffix, so Vitest won't try to run it directly)
+- Create: `test/deviceApi.integration.test.ts`
+
+**Interfaces:**
+- Consumes: `pingBulb`, `findLightEntity`, `getState`, `setState` from Task 1 (`src/bulbs/deviceApi.ts`).
+- Produces: `startMockBulb(options?: MockBulbOptions): Promise<MockBulbServer>` where `MockBulbOptions = {mac?, hostname?, title?, projectName?, objectId?}` and `MockBulbServer = {port: number, stop: () => Promise<void>, getLastSetParams: () => URLSearchParams | null}`.
+
+- [ ] **Step 1: Write `test/mockBulbServer.ts`**
+
+```typescript
+// test/mockBulbServer.ts
+import http from 'http';
+import type { AddressInfo } from 'net';
+
+export interface MockBulbOptions {
+  mac?: string;
+  hostname?: string;
+  title?: string;
+  projectName?: string;
+  objectId?: string;
+}
+
+export interface MockBulbServer {
+  port: number;
+  stop: () => Promise<void>;
+  getLastSetParams: () => URLSearchParams | null;
+}
+
+export function startMockBulb(options: MockBulbOptions = {}): Promise<MockBulbServer> {
+  const mac = options.mac ?? 'C4:5B:BE:7D:49:E0';
+  const hostname = options.hostname ?? 'kauf-bulb-7d49e0';
+  const title = options.title ?? 'Kauf Bulb 7d49e0';
+  const projectName = options.projectName ?? 'Kauf.RGBWW';
+  const objectId = options.objectId ?? 'kauf_bulb_7d49e0';
+
+  const state = { on: true, brightness: 55, r: 39, g: 183, b: 255 };
+  let lastSetParams: URLSearchParams | null = null;
+
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? '/', 'http://localhost');
+
+    if (url.pathname === '/events') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      const ping = {
+        title,
+        esph_v: '2026.3.0',
+        proj_n: projectName,
+        proj_v: '2.00(u)',
+        mac_addr: mac,
+        hostname,
+      };
+      res.write(`event: ping\ndata: ${JSON.stringify(ping)}\n\n`);
+      res.write(
+        `event: state\ndata: ${JSON.stringify({ id: 'binary_sensor-4mib', domain: 'binary_sensor', entity_category: 2 })}\n\n`
+      );
+      res.write(
+        `event: state\ndata: ${JSON.stringify({ id: 'light-warm_rgb', domain: 'light', entity_category: 1 })}\n\n`
+      );
+      res.write(
+        `event: state\ndata: ${JSON.stringify({ id: 'light-cold_rgb', domain: 'light', entity_category: 1 })}\n\n`
+      );
+      res.write(
+        `event: state\ndata: ${JSON.stringify({
+          id: `light-${objectId}`,
+          domain: 'light',
+          state: state.on ? 'ON' : 'OFF',
+          brightness: Math.round((state.brightness / 100) * 255),
+          color: { r: state.r, g: state.g, b: state.b },
+        })}\n\n`
+      );
+      // Deliberately never call res.end() here - a real bulb keeps this
+      // connection open indefinitely. The client (deviceApi.ts) closes it
+      // early via reader.cancel() once it has what it needs.
+      return;
+    }
+
+    if (url.pathname === `/light/${objectId}` && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          state: state.on ? 'ON' : 'OFF',
+          brightness: Math.round((state.brightness / 100) * 255),
+          color: { r: state.r, g: state.g, b: state.b },
+        })
+      );
+      return;
+    }
+
+    if (url.pathname === `/light/${objectId}/turn_on` && req.method === 'POST') {
+      lastSetParams = url.searchParams;
+      state.on = true;
+      if (url.searchParams.has('brightness')) {
+        state.brightness = Math.round((Number(url.searchParams.get('brightness')) / 255) * 100);
+      }
+      if (url.searchParams.has('r')) state.r = Number(url.searchParams.get('r'));
+      if (url.searchParams.has('g')) state.g = Number(url.searchParams.get('g'));
+      if (url.searchParams.has('b')) state.b = Number(url.searchParams.get('b'));
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    if (url.pathname === `/light/${objectId}/turn_off` && req.method === 'POST') {
+      lastSetParams = url.searchParams;
+      state.on = false;
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    res.writeHead(404);
+    res.end();
+  });
+
+  return new Promise((resolve) => {
+    server.listen(0, '127.0.0.1', () => {
+      const port = (server.address() as AddressInfo).port;
+      resolve({
+        port,
+        stop: () => new Promise((r) => server.close(() => r())),
+        getLastSetParams: () => lastSetParams,
+      });
+    });
+  });
+}
+```
+
+- [ ] **Step 2: Write `test/deviceApi.integration.test.ts`**
+
+```typescript
+// test/deviceApi.integration.test.ts
+import { describe, it, expect, afterEach } from 'vitest';
+import { startMockBulb, MockBulbServer } from './mockBulbServer';
+import { pingBulb, findLightEntity, getState, setState } from '../src/bulbs/deviceApi';
+
+describe('deviceApi against a mock bulb HTTP server', () => {
+  let mock: MockBulbServer;
+
+  afterEach(async () => {
+    if (mock) await mock.stop();
+  });
+
+  it('pings a real mock Kauf bulb and gets its identity', async () => {
+    mock = await startMockBulb();
+
+    const result = await pingBulb(`127.0.0.1:${mock.port}`);
+
+    expect(result).toEqual({
+      mac: 'C4:5B:BE:7D:49:E0',
+      hostname: 'kauf-bulb-7d49e0',
+      title: 'Kauf Bulb 7d49e0',
+    });
+  });
+
+  it('returns null for a mock device with a non-Kauf project name', async () => {
+    mock = await startMockBulb({ projectName: 'SomethingElse' });
+
+    expect(await pingBulb(`127.0.0.1:${mock.port}`)).toBeNull();
+  });
+
+  it('finds the primary light entity, skipping hidden config lights', async () => {
+    mock = await startMockBulb();
+
+    expect(await findLightEntity(`127.0.0.1:${mock.port}`)).toBe('kauf_bulb_7d49e0');
+  });
+
+  it('reads real state from the mock bulb', async () => {
+    mock = await startMockBulb();
+
+    expect(await getState(`127.0.0.1:${mock.port}`, 'kauf_bulb_7d49e0')).toEqual({
+      on: true,
+      brightness: 55,
+      r: 39,
+      g: 183,
+      b: 255,
+    });
+  });
+
+  it('turns the mock bulb off and getState reflects it', async () => {
+    mock = await startMockBulb();
+
+    const success = await setState(`127.0.0.1:${mock.port}`, 'kauf_bulb_7d49e0', { on: false });
+    expect(success).toBe(true);
+
+    const state = await getState(`127.0.0.1:${mock.port}`, 'kauf_bulb_7d49e0');
+    expect(state?.on).toBe(false);
+  });
+
+  it('sets brightness and color, and getState reflects the new values', async () => {
+    mock = await startMockBulb();
+
+    const success = await setState(`127.0.0.1:${mock.port}`, 'kauf_bulb_7d49e0', {
+      on: true,
+      brightness: 100,
+      r: 255,
+      g: 0,
+      b: 0,
+    });
+    expect(success).toBe(true);
+
+    expect(await getState(`127.0.0.1:${mock.port}`, 'kauf_bulb_7d49e0')).toEqual({
+      on: true,
+      brightness: 100,
+      r: 255,
+      g: 0,
+      b: 0,
+    });
+  });
+
+  it('returns null/false when nothing is listening on the port', async () => {
+    mock = await startMockBulb();
+    const deadPort = mock.port;
+    await mock.stop();
+
+    expect(await pingBulb(`127.0.0.1:${deadPort}`)).toBeNull();
+    expect(await getState(`127.0.0.1:${deadPort}`, 'kauf_bulb_7d49e0')).toBeNull();
+  });
+});
+```
+
+- [ ] **Step 3: Run the new tests**
+
+Run: `npx vitest run test/deviceApi.integration.test.ts`
+Expected: PASS (7 tests) — this is a genuine integration test against a real (synthetic) HTTP server, not mocked `fetch`, so there is no separate RED step: `deviceApi.ts` already exists from Task 1, so these tests should pass on the first run once the mock server is written correctly. If any fail, the bug could be in either the mock server or a genuine gap in `deviceApi.ts` that Task 1's mocked-`fetch` tests didn't catch — investigate which before assuming the mock server is at fault.
+
+- [ ] **Step 4: Run the full test suite**
+
+Run: `npm test`
+Expected: PASS — Task 1's existing `test/deviceApi.test.ts` (mocked-`fetch` unit tests) and this task's new `test/deviceApi.integration.test.ts` (real-HTTP-server tests) both exercise `src/bulbs/deviceApi.ts` and should coexist without conflict.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add test/mockBulbServer.ts test/deviceApi.integration.test.ts
+git commit -m "Add mock bulb HTTP server and deviceApi integration tests"
+```
+
+---
+
+## Task 3: Bulb directory persistence
 
 **Files:**
 - Create: `src/bulbs/store.ts`
@@ -593,14 +846,14 @@ git commit -m "Add persistent JSON-file bulb directory store"
 
 ---
 
-## Task 3: Discovery scanner
+## Task 4: Discovery scanner
 
 **Files:**
 - Create: `src/bulbs/discovery.ts`
 - Test: `test/discovery.test.ts`
 
 **Interfaces:**
-- Consumes: `pingBulb`, `findLightEntity` from Task 1 (`src/bulbs/deviceApi.ts`); `loadBulbs`, `upsertBulb` from Task 2 (`src/bulbs/store.ts`).
+- Consumes: `pingBulb`, `findLightEntity` from Task 1 (`src/bulbs/deviceApi.ts`); `loadBulbs`, `upsertBulb` from Task 3 (`src/bulbs/store.ts`).
 - Produces: `listCidrAddresses(cidr: string): string[]`; `runDiscoveryScan(cidr?: string): Promise<number>` (returns count of bulbs found, defaults to `BULB_SCAN_CIDR` env var or `192.168.1.0/24`); `startDiscoveryLoop(): void`; `stopDiscoveryLoop(): void`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -828,14 +1081,14 @@ git commit -m "Add HTTP subnet-scan bulb discovery"
 
 ---
 
-## Task 4: Service layer (live state composition)
+## Task 5: Service layer (live state composition)
 
 **Files:**
 - Create: `src/bulbs/service.ts`
 - Test: `test/service.test.ts`
 
 **Interfaces:**
-- Consumes: `listBulbs`, `getBulb` from Task 2 (`src/bulbs/store.ts`); `getState`, `setState`, `SetStateOptions` from Task 1 (`src/bulbs/deviceApi.ts`).
+- Consumes: `listBulbs`, `getBulb` from Task 3 (`src/bulbs/store.ts`); `getState`, `setState`, `SetStateOptions` from Task 1 (`src/bulbs/deviceApi.ts`).
 - Produces: `BulbWithState = {id, name, mac, lastIp, online: boolean, on: boolean | null, brightness: number | null, r: number | null, g: number | null, b: number | null}`; `listWithLiveState(): Promise<BulbWithState[]>`; `getWithLiveState(id: string): Promise<BulbWithState | null>`; `setBulbState(id: string, options: SetStateOptions): Promise<{success: boolean, notFound?: boolean, bulb?: BulbWithState}>`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1047,7 +1300,7 @@ git commit -m "Add bulb service layer composing store and live device state"
 
 ---
 
-## Task 5: Public API routes
+## Task 6: Public API routes
 
 **Files:**
 - Modify: `src/routes/bulbs.ts` (currently the skeleton-phase stub)
@@ -1055,7 +1308,7 @@ git commit -m "Add bulb service layer composing store and live device state"
 - Modify: `test/bulbs.test.ts` (currently tests the stub)
 
 **Interfaces:**
-- Consumes: `requireToken` from `src/middleware/requireToken.ts` (unchanged); `listWithLiveState`, `getWithLiveState`, `setBulbState` from Task 4 (`src/bulbs/service.ts`).
+- Consumes: `requireToken` from `src/middleware/requireToken.ts` (unchanged); `listWithLiveState`, `getWithLiveState`, `setBulbState` from Task 5 (`src/bulbs/service.ts`).
 - Produces: `bulbsRouter: Router` — `GET /bulbs`, `GET /bulb`, `POST /bulb`, all `requireToken('BULBS_API_TOKENS')`.
 
 - [ ] **Step 1: Write the failing tests** (replaces the existing stub test file)
@@ -1330,7 +1583,7 @@ git commit -m "Implement GET /bulbs, GET /bulb, POST /bulb against live device s
 
 ---
 
-## Task 6: Web UI — bulb list and toggle button
+## Task 7: Web UI — bulb list and toggle button
 
 **Files:**
 - Modify: `src/views/page.ts`
@@ -1338,7 +1591,7 @@ git commit -m "Implement GET /bulbs, GET /bulb, POST /bulb against live device s
 - Modify: `test/index.test.ts`
 
 **Interfaces:**
-- Consumes: `BulbWithState`, `listWithLiveState`, `getWithLiveState`, `setBulbState` from Task 4 (`src/bulbs/service.ts`).
+- Consumes: `BulbWithState`, `listWithLiveState`, `getWithLiveState`, `setBulbState` from Task 5 (`src/bulbs/service.ts`).
 - Produces: `renderPage(email: string, bulbs: BulbWithState[]): string` (signature change from the skeleton phase's `renderPage(email: string)`); `indexRouter` gains `POST /ui/bulb/:id/toggle` (session-cookie gated via `requireAuth`).
 
 - [ ] **Step 1: Write the failing tests** (replaces the relevant parts of the existing file; the `GET /favicon.png` block is untouched)
@@ -1628,13 +1881,13 @@ git commit -m "Add bulb list and on/off toggle to the web UI"
 
 ---
 
-## Task 7: Wire discovery into the server entrypoint
+## Task 8: Wire discovery into the server entrypoint
 
 **Files:**
 - Modify: `src/server.ts`
 
 **Interfaces:**
-- Consumes: `startDiscoveryLoop` from Task 3 (`src/bulbs/discovery.ts`).
+- Consumes: `startDiscoveryLoop` from Task 4 (`src/bulbs/discovery.ts`).
 
 No dedicated test — this is a two-line wiring change to an already-simple entrypoint (matches the skeleton phase's precedent for `src/middleware/authRateLimit.ts`/`requireAuth.ts`, which also had no dedicated test file). Verified via the build step and a local manual run below.
 
@@ -1697,7 +1950,7 @@ git commit -m "Start the discovery loop after the server starts listening"
 
 ---
 
-## Task 8: Cluster manifests — PVC and volume mount
+## Task 9: Cluster manifests — PVC and volume mount
 
 **Files** (in the separate `kube-setup` repo — not this one):
 - Create: `manifests/bulbs/bulbs-pvc.yaml`
@@ -1802,11 +2055,11 @@ kubectl -n bulbs get pvc bulbs-data-pvc
 
 Expected: PVC created; `STATUS` shows `Pending` until a pod actually mounts it (the `local-path` storage class is `WaitForFirstConsumer` — this is expected, not an error; it binds once the next deploy's pod starts).
 
-Do **not** apply `bulbs-ksvc.yaml` directly in this task — Task 9's deploy (pushing to `main` then `production`) applies it as part of the normal CI/CD flow, with the image tag the deploy workflow fills in.
+Do **not** apply `bulbs-ksvc.yaml` directly in this task — Task 10's deploy (pushing to `main` then `production`) applies it as part of the normal CI/CD flow, with the image tag the deploy workflow fills in.
 
 ---
 
-## Task 9: Deploy and live verification
+## Task 10: Deploy and live verification
 
 Operational task — no code changes. Executed directly by the controller with user confirmation before pushing to `production` (matches the skeleton phase's established pattern for live deploys).
 
@@ -1884,6 +2137,6 @@ Expected: the bulb is still listed immediately (before a new scan would even run
 
 ## Self-Review Notes
 
-- **Spec coverage:** device API research (Task 1), discovery scan + in-process scheduling (Tasks 3, 7), persistence with immutable/mutable field split (Task 2), live-state composition (Task 4), public Bearer-token API (Task 5), session-cookie-gated UI + toggle (Task 6), PVC + Velero backup annotation (Task 8), live end-to-end verification (Task 9) — every spec section has a task.
-- **Placeholder scan:** no TBD/TODO. The only bracketed placeholders (`<KEEP THE CURRENTLY-COMMITTED TAG>`, `<real BULBS_API_TOKENS value>`, `<token>`) are in Task 8/9's operational instructions, which by nature reference values only known at execution time — not a plan gap, same pattern as the skeleton phase's Task 15.
-- **Type consistency:** `SetStateOptions` (Task 1) used identically by `setBulbState` (Task 4) and `POST /bulb`'s body parser (Task 5). `BulbWithState` (Task 4) used identically by `GET /bulbs`/`GET /bulb` (Task 5) and `renderPage`/the toggle route (Task 6). `StoredBulb` (Task 2) used identically by `service.ts` (Task 4) and `discovery.ts`'s `upsertBulb` calls (Task 3). `renderPage`'s new two-argument signature is updated consistently everywhere it's called (only `src/routes/index.ts`).
+- **Spec coverage:** device API research (Task 1), a mock-bulb integration harness for that API (Task 2, added mid-execution per user request), discovery scan + in-process scheduling (Tasks 4, 8), persistence with immutable/mutable field split (Task 3), live-state composition (Task 5), public Bearer-token API (Task 6), session-cookie-gated UI + toggle (Task 7), PVC + Velero backup annotation (Task 9), live end-to-end verification (Task 10) — every spec section has a task.
+- **Placeholder scan:** no TBD/TODO. The only bracketed placeholders (`<KEEP THE CURRENTLY-COMMITTED TAG>`, `<real BULBS_API_TOKENS value>`, `<token>`) are in Task 9/10's operational instructions, which by nature reference values only known at execution time — not a plan gap, same pattern as the skeleton phase's Task 15.
+- **Type consistency:** `SetStateOptions` (Task 1) used identically by `setBulbState` (Task 5) and `POST /bulb`'s body parser (Task 6). `BulbWithState` (Task 5) used identically by `GET /bulbs`/`GET /bulb` (Task 6) and `renderPage`/the toggle route (Task 7). `StoredBulb` (Task 3) used identically by `service.ts` (Task 5) and `discovery.ts`'s `upsertBulb` calls (Task 4). `renderPage`'s new two-argument signature is updated consistently everywhere it's called (only `src/routes/index.ts`).
