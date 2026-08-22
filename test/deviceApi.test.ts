@@ -58,6 +58,41 @@ describe('pingBulb', () => {
 
     expect(await pingBulb('192.168.1.99')).toBeNull();
   });
+
+  it('cancels the response body on a non-ok response instead of leaking it', async () => {
+    const response = sseResponse('', 404);
+    const cancelSpy = vi.spyOn(response.body!, 'cancel');
+    (global.fetch as any).mockResolvedValue(response);
+
+    await pingBulb('192.168.1.99');
+
+    expect(cancelSpy).toHaveBeenCalled();
+  });
+
+  it('stops reading and does not hang when a device streams past the buffer cap without a frame boundary', async () => {
+    // Simulate a non-SSE responder: 200 OK but a huge blob of data with no
+    // "\n\n" frame boundary anywhere in it.
+    const encoder = new TextEncoder();
+    const hugeChunk = encoder.encode('x'.repeat(70 * 1024));
+    let cancelled = false;
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(hugeChunk);
+        // Deliberately never closes, mirroring a real never-ending stream -
+        // the cap must trigger a return before this would hang.
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const response = new Response(stream, { status: 200 });
+    (global.fetch as any).mockResolvedValue(response);
+
+    const result = await pingBulb('192.168.1.99');
+
+    expect(result).toBeNull();
+    expect(cancelled).toBe(true);
+  });
 });
 
 describe('findLightEntity', () => {

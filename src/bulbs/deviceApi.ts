@@ -2,6 +2,10 @@ const PING_TIMEOUT_MS = 800;
 const ENTITY_TIMEOUT_MS = 2000;
 const STATE_TIMEOUT_MS = 3000;
 const KAUF_PROJECT_NAME = 'Kauf.RGBWW';
+// Real ESPHome ping/state frames are a few hundred bytes each; this caps
+// runaway buffering from a non-SSE responder on the LAN that never emits a
+// frame boundary.
+const SSE_BUFFER_CAP_BYTES = 64 * 1024;
 
 export interface PingResult {
   mac: string;
@@ -47,6 +51,7 @@ async function readSseFrames(
     });
 
     if (!response.ok || !response.body) {
+      await response.body?.cancel().catch(() => {});
       return;
     }
 
@@ -60,6 +65,12 @@ async function readSseFrames(
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
+
+        if (buffer.length > SSE_BUFFER_CAP_BYTES) {
+          // No frame boundary within the cap - treat like a timeout, not a match.
+          await reader.cancel().catch(() => {});
+          return;
+        }
 
         let frameEnd;
         while ((frameEnd = buffer.indexOf('\n\n')) !== -1) {
