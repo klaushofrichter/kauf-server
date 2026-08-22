@@ -12,6 +12,25 @@ describe('GET /', () => {
     expect(response.headers.location).toContain('accounts.google.com');
   });
 
+  it('sets an oauth_state cookie whose value matches the state param in the redirect URL', async () => {
+    const app = createApp();
+    const response = await request(app).get('/');
+
+    expect(response.status).toBe(302);
+    const setCookieHeader = response.headers['set-cookie']?.find((cookie: string) =>
+      cookie.startsWith('oauth_state=')
+    );
+    expect(setCookieHeader).toBeDefined();
+    expect(setCookieHeader).toContain('HttpOnly');
+
+    const stateInCookie = setCookieHeader?.split(';')[0].split('=')[1];
+    const redirectUrl = new URL(response.headers.location);
+    const stateInUrl = redirectUrl.searchParams.get('state');
+
+    expect(stateInUrl).toBeTruthy();
+    expect(stateInUrl).toBe(stateInCookie);
+  });
+
   it('redirects to Google sign-in when the session cookie is invalid', async () => {
     const app = createApp();
     const response = await request(app).get('/').set('Cookie', 'session=not-a-real-token');
@@ -30,6 +49,16 @@ describe('GET /', () => {
     expect(response.type).toBe('text/html');
     expect(response.text).toContain('allowed@example.com');
     expect(response.text).toContain('/auth/logout');
+  });
+});
+
+describe('GET /nonexistent', () => {
+  it('returns a JSON 404 for an unknown path', async () => {
+    const app = createApp();
+    const response = await request(app).get('/nonexistent');
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'not found' });
   });
 });
 

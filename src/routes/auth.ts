@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { OAuth2Client } from 'google-auth-library';
 import { signSession } from '../session';
 import { createAuthRateLimit } from '../middleware/authRateLimit';
+import { OAUTH_STATE_COOKIE } from '../middleware/requireAuth';
 
 export const authRouter = Router();
 const authRateLimit = createAuthRateLimit();
@@ -16,11 +17,34 @@ function getAllowedEmails(): string[] {
     .filter((email) => email.length > 0);
 }
 
+function clearOauthStateCookie(res: Response): void {
+  res.clearCookie(OAUTH_STATE_COOKIE, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+  });
+}
+
 authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res: Response) => {
   const code = req.query.code;
+  const state = req.query.state;
+  const stateCookie = req.cookies?.[OAUTH_STATE_COOKIE];
+
+  clearOauthStateCookie(res);
+
+  if (
+    typeof state !== 'string' ||
+    state.length === 0 ||
+    typeof stateCookie !== 'string' ||
+    stateCookie.length === 0 ||
+    state !== stateCookie
+  ) {
+    res.status(401).json({ error: 'unauthorized' });
+    return;
+  }
 
   if (typeof code !== 'string' || code.length === 0) {
-    res.status(401).json({ error: 'missing authorization code' });
+    res.status(401).json({ error: 'unauthorized' });
     return;
   }
 
@@ -40,12 +64,12 @@ authRouter.get('/auth/google/callback', authRateLimit, async (req: Request, res:
     const payload = ticket.getPayload();
     email = payload?.email_verified ? payload.email : undefined;
   } catch {
-    res.status(401).json({ error: 'authentication failed' });
+    res.status(401).json({ error: 'unauthorized' });
     return;
   }
 
   if (!email) {
-    res.status(401).json({ error: 'authentication failed' });
+    res.status(401).json({ error: 'unauthorized' });
     return;
   }
 
