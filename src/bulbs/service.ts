@@ -1,5 +1,5 @@
 import { listBulbs, getBulb, renameBulb, StoredBulb } from './store';
-import { getState, setState, SetStateOptions } from './deviceApi';
+import { getState, setState, pingBulb, SetStateOptions } from './deviceApi';
 
 export interface BulbWithState {
   id: string;
@@ -12,6 +12,11 @@ export interface BulbWithState {
   r: number | null;
   g: number | null;
   b: number | null;
+}
+
+export interface BulbDetail extends BulbWithState {
+  firmwareVersion: string | null;
+  esphomeVersion: string | null;
 }
 
 async function withLiveState(stored: StoredBulb | null): Promise<BulbWithState | null> {
@@ -72,4 +77,28 @@ export async function renameBulbAndGetState(
 
   const bulb = await withLiveState(stored);
   return { success: true, bulb: bulb ?? undefined };
+}
+
+export async function getFullDetail(id: string): Promise<BulbDetail | null> {
+  const stored = getBulb(id);
+  if (!stored) return null;
+
+  const [bulb, ping] = await Promise.all([withLiveState(stored), pingBulb(stored.lastIp)]);
+  if (!bulb) return null;
+
+  return {
+    ...bulb,
+    firmwareVersion: ping?.firmwareVersion ?? null,
+    esphomeVersion: ping?.esphomeVersion ?? null,
+  };
+}
+
+export async function setAllBulbsState(on: boolean): Promise<{ id: string; success: boolean }[]> {
+  const stored = listBulbs();
+  return Promise.all(
+    stored.map(async (bulb) => {
+      const success = await setState(bulb.lastIp, bulb.objectId, { on });
+      return { id: bulb.id, success };
+    })
+  );
 }

@@ -8,11 +8,12 @@ vi.mock('../src/bulbs/store', () => ({
 vi.mock('../src/bulbs/deviceApi', () => ({
   getState: vi.fn(),
   setState: vi.fn(),
+  pingBulb: vi.fn(),
 }));
 
 import { listBulbs, getBulb, renameBulb } from '../src/bulbs/store';
-import { getState, setState } from '../src/bulbs/deviceApi';
-import { listWithLiveState, getWithLiveState, setBulbState, renameBulbAndGetState } from '../src/bulbs/service';
+import { getState, setState, pingBulb } from '../src/bulbs/deviceApi';
+import { listWithLiveState, getWithLiveState, setBulbState, renameBulbAndGetState, getFullDetail, setAllBulbsState } from '../src/bulbs/service';
 
 const STORED = {
   id: 'kauf-bulb-7d49e0',
@@ -152,5 +153,75 @@ describe('renameBulbAndGetState', () => {
     expect(renameBulb).toHaveBeenCalledWith('kauf-bulb-7d49e0', 'Living Room Lamp');
     expect(result.success).toBe(true);
     expect(result.bulb?.name).toBe('Living Room Lamp');
+  });
+});
+
+describe('getFullDetail', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns null for an unknown id', async () => {
+    vi.mocked(getBulb).mockReturnValue(null);
+
+    expect(await getFullDetail('nonexistent')).toBeNull();
+  });
+
+  it('merges live state and live firmware info', async () => {
+    vi.mocked(getBulb).mockReturnValue(STORED);
+    vi.mocked(getState).mockResolvedValue({ on: true, brightness: 55, r: 39, g: 183, b: 255 });
+    vi.mocked(pingBulb).mockResolvedValue({
+      mac: STORED.mac,
+      hostname: STORED.id,
+      title: STORED.name,
+      firmwareVersion: '2.00(u)',
+      esphomeVersion: '2026.3.0',
+    });
+
+    const result = await getFullDetail('kauf-bulb-7d49e0');
+
+    expect(result?.on).toBe(true);
+    expect(result?.firmwareVersion).toBe('2.00(u)');
+    expect(result?.esphomeVersion).toBe('2026.3.0');
+  });
+
+  it('reports null firmware fields when the ping fails, independently of state success', async () => {
+    vi.mocked(getBulb).mockReturnValue(STORED);
+    vi.mocked(getState).mockResolvedValue({ on: true, brightness: 55, r: 39, g: 183, b: 255 });
+    vi.mocked(pingBulb).mockResolvedValue(null);
+
+    const result = await getFullDetail('kauf-bulb-7d49e0');
+
+    expect(result?.online).toBe(true);
+    expect(result?.firmwareVersion).toBeNull();
+    expect(result?.esphomeVersion).toBeNull();
+  });
+});
+
+describe('setAllBulbsState', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('sets every known bulb in parallel and reports per-bulb success', async () => {
+    const bulbA = { ...STORED, id: 'a', lastIp: '1.1.1.1', objectId: 'obj_a' };
+    const bulbB = { ...STORED, id: 'b', lastIp: '2.2.2.2', objectId: 'obj_b' };
+    vi.mocked(listBulbs).mockReturnValue([bulbA, bulbB]);
+    vi.mocked(setState).mockImplementation(async (ip: string) => ip === '1.1.1.1');
+
+    const results = await setAllBulbsState(true);
+
+    expect(results).toEqual([
+      { id: 'a', success: true },
+      { id: 'b', success: false },
+    ]);
+    expect(setState).toHaveBeenCalledWith('1.1.1.1', 'obj_a', { on: true });
+    expect(setState).toHaveBeenCalledWith('2.2.2.2', 'obj_b', { on: true });
+  });
+
+  it('returns an empty array when there are no known bulbs', async () => {
+    vi.mocked(listBulbs).mockReturnValue([]);
+
+    expect(await setAllBulbsState(true)).toEqual([]);
   });
 });
