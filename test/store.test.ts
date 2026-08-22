@@ -14,11 +14,36 @@ describe('bulbs store', () => {
 
   afterEach(() => {
     if (fs.existsSync(dataPath)) fs.unlinkSync(dataPath);
+    if (fs.existsSync(`${dataPath}.tmp`)) fs.unlinkSync(`${dataPath}.tmp`);
     delete process.env.BULBS_DATA_PATH;
   });
 
   it('returns an empty array when the file does not exist', () => {
     expect(loadBulbs()).toEqual([]);
+  });
+
+  it('returns an empty array when the file contains valid JSON that is not an array (object)', () => {
+    fs.writeFileSync(dataPath, JSON.stringify({}));
+    expect(loadBulbs()).toEqual([]);
+  });
+
+  it('returns an empty array when the file contains valid JSON that is not an array (string)', () => {
+    fs.writeFileSync(dataPath, JSON.stringify('not an array'));
+    expect(loadBulbs()).toEqual([]);
+  });
+
+  it('does not leave a stale .tmp file after saving, and does not truncate on write', () => {
+    upsertBulb({
+      mac: 'C4:5B:BE:7D:49:E0',
+      hostname: 'kauf-bulb-7d49e0',
+      title: 'Kauf Bulb 7d49e0',
+      ip: '192.168.1.26',
+      objectId: 'kauf_bulb_7d49e0',
+    });
+
+    expect(fs.existsSync(`${dataPath}.tmp`)).toBe(false);
+    expect(fs.existsSync(dataPath)).toBe(true);
+    expect(loadBulbs()).toHaveLength(1);
   });
 
   it('creates a new bulb with immutable fields set', () => {

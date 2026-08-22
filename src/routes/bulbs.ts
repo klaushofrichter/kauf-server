@@ -1,11 +1,21 @@
 // src/routes/bulbs.ts
 import { Router, Request, Response } from 'express';
 import { requireToken } from '../middleware/requireToken';
+import { asyncHandler } from '../middleware/asyncHandler';
+import { createAuthRateLimit } from '../middleware/authRateLimit';
 import { listWithLiveState, getWithLiveState, setBulbState } from '../bulbs/service';
 import { SetStateOptions } from '../bulbs/deviceApi';
 
 export const bulbsRouter = Router();
 const requireBulbsToken = requireToken('BULBS_API_TOKENS');
+// Reuse the existing 30-requests-per-15-minutes limiter used for the OAuth
+// callback and session UI routes. This endpoint is protected by a static
+// Bearer token, so the limiter's job is to bound brute-force token guessing
+// and runaway/looping callers, not to support high-frequency polling -
+// 30/15min (2/min) is generous for normal manual bulb control from the UI
+// or occasional automation, while still capping the blast radius of a
+// leaked token or malfunctioning client. Kept identical to the UI limiter
+// for consistency rather than inventing a bespoke value.
 
 function parseSetBody(body: Record<string, unknown>): { valid: boolean; options?: SetStateOptions } {
   const options: SetStateOptions = {};
@@ -38,51 +48,66 @@ function parseSetBody(body: Record<string, unknown>): { valid: boolean; options?
   return { valid: true, options };
 }
 
-bulbsRouter.get('/bulbs', requireBulbsToken, async (_req: Request, res: Response) => {
-  const bulbs = await listWithLiveState();
-  res.status(200).json({ bulbs });
-});
+bulbsRouter.get(
+  '/bulbs',
+  createAuthRateLimit(),
+  requireBulbsToken,
+  asyncHandler(async (_req: Request, res: Response) => {
+    const bulbs = await listWithLiveState();
+    res.status(200).json({ bulbs });
+  })
+);
 
-bulbsRouter.get('/bulb', requireBulbsToken, async (req: Request, res: Response) => {
-  const id = req.query.id;
-  if (typeof id !== 'string') {
-    res.status(404).json({ error: 'not found' });
-    return;
-  }
+bulbsRouter.get(
+  '/bulb',
+  createAuthRateLimit(),
+  requireBulbsToken,
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = req.query.id;
+    if (typeof id !== 'string') {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
 
-  const bulb = await getWithLiveState(id);
-  if (!bulb) {
-    res.status(404).json({ error: 'not found' });
-    return;
-  }
+    const bulb = await getWithLiveState(id);
+    if (!bulb) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
 
-  res.status(200).json(bulb);
-});
+    res.status(200).json(bulb);
+  })
+);
 
-bulbsRouter.post('/bulb', requireBulbsToken, async (req: Request, res: Response) => {
-  const id = req.query.id;
-  if (typeof id !== 'string') {
-    res.status(404).json({ error: 'not found' });
-    return;
-  }
+bulbsRouter.post(
+  '/bulb',
+  createAuthRateLimit(),
+  requireBulbsToken,
+  asyncHandler(async (req: Request, res: Response) => {
+    const id = req.query.id;
+    if (typeof id !== 'string') {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
 
-  const parsed = parseSetBody(req.body ?? {});
-  if (!parsed.valid) {
-    res.status(400).json({ error: 'invalid request' });
-    return;
-  }
+    const parsed = parseSetBody(req.body ?? {});
+    if (!parsed.valid) {
+      res.status(400).json({ error: 'invalid request' });
+      return;
+    }
 
-  const result = await setBulbState(id, parsed.options!);
+    const result = await setBulbState(id, parsed.options!);
 
-  if (result.notFound) {
-    res.status(404).json({ error: 'not found' });
-    return;
-  }
+    if (result.notFound) {
+      res.status(404).json({ error: 'not found' });
+      return;
+    }
 
-  if (!result.success) {
-    res.status(502).json({ error: 'bulb unreachable' });
-    return;
-  }
+    if (!result.success) {
+      res.status(502).json({ error: 'bulb unreachable' });
+      return;
+    }
 
-  res.status(200).json(result.bulb);
-});
+    res.status(200).json(result.bulb);
+  })
+);

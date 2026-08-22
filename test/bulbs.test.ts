@@ -144,3 +144,34 @@ describe('POST /bulb', () => {
     expect(setBulbState).toHaveBeenCalledWith('kauf-bulb-7d49e0', { on: true, brightness: 55 });
   });
 });
+
+describe('async error boundary', () => {
+  it('returns 500 instead of crashing when the service layer rejects', async () => {
+    vi.mocked(listWithLiveState).mockRejectedValue(new Error('boom'));
+    const app = createApp();
+
+    const response = await request(app).get('/bulbs').set('Authorization', `Bearer ${TOKEN}`);
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({ error: 'internal server error' });
+  });
+});
+
+// Placed last: this exhausts the per-route rate limiter counter for /bulbs,
+// which would make earlier tests in this file that hit /bulbs flaky if run
+// after it (each route's limiter instance is a module-level singleton
+// shared across all tests in this file).
+describe('GET /bulbs rate limiting', () => {
+  it('rate-limits repeated requests', async () => {
+    vi.mocked(listWithLiveState).mockResolvedValue([]);
+    const app = createApp();
+    let lastStatus = 0;
+
+    for (let i = 0; i < 31; i += 1) {
+      const response = await request(app).get('/bulbs').set('Authorization', `Bearer ${TOKEN}`);
+      lastStatus = response.status;
+    }
+
+    expect(lastStatus).toBe(429);
+  });
+});

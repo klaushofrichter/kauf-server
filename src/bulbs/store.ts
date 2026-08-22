@@ -29,7 +29,11 @@ export function loadBulbs(): StoredBulb[] {
     return [];
   }
   try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed;
   } catch {
     return [];
   }
@@ -40,7 +44,9 @@ export const listBulbs = loadBulbs;
 export function saveBulbs(bulbs: StoredBulb[]): void {
   const filePath = getDataPath();
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(bulbs, null, 2));
+  const tempPath = `${filePath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(bulbs, null, 2));
+  fs.renameSync(tempPath, filePath);
 }
 
 export function upsertBulb(info: UpsertInfo): StoredBulb {
