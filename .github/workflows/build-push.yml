@@ -24,6 +24,12 @@ jobs:
           npm ci
           npm test
 
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
         with:
