@@ -17,7 +17,10 @@ Public web UI: https://bulbs.skylar.technology
   see `BULBS_API_TOKENS` below). Returns `{"bulbs":[...]}`, the discovered
   bulb directory merged with each bulb's live state.
 - `GET /bulb?id=<id>` — protected the same way. Returns a single bulb's
-  details and live state, or 404 if the id is unknown.
+  details and live state, or 404 if the id is unknown. Also includes
+  `firmwareVersion` and `esphomeVersion` (each `string | null`, `null` if
+  the device didn't respond to the info request — independently of
+  `online`).
 - `POST /bulb?id=<id>` — protected the same way. Sets bulb state; accepts a
   JSON body with any of `on`, `brightness` (0-100), `r`/`g`/`b` (0-255), and
   `transition` (ms). Returns the updated bulb, 404 for an unknown id, or 502
@@ -27,6 +30,14 @@ Public web UI: https://bulbs.skylar.technology
   an unknown id, or 400 if `name` is missing/empty. The nickname is
   persisted (unlike on/off/brightness/color, which are always read live
   from the device) and is what `GET /bulbs`/`GET /bulb` return as `name`.
+- `POST /bulbs/on`, `POST /bulbs/off` — protected the same way. Turn every
+  known bulb on/off. No body. Returns `{"results":[{"id":...,
+  "success":true|false}, ...]}` — never fails the whole request for one
+  bulb's failure.
+- `POST /discover` — protected the same way. Runs a discovery scan
+  synchronously (blocking; a full subnet sweep can take several seconds)
+  rather than waiting for the automatic interval. No body. Returns
+  `{"bulbsFound": <number>, "bulbs": [...]}` (same shape as `GET /bulbs`).
 - `GET /` — web UI, requires signing in with Google (restricted to emails in
   `ALLOWED_EMAILS`).
 - `POST /ui/bulb/:id/toggle` — web UI action that toggles a bulb on/off;
@@ -38,13 +49,19 @@ Public web UI: https://bulbs.skylar.technology
 All of the above are also rate-limited (30 requests per 15 minutes per
 client) to bound brute-force and runaway-client behavior.
 
+See `docs/API.md` for full request/response examples of every endpoint.
+
 ## Development
 
 ```bash
 npm install
 cp .env.example .env   # fill in real values
 npm run dev             # runs src/server.ts directly via tsx, no build step
-npm test                # runs the Vitest suite once
+npm test                # runs the Vitest suite once (this is what gates CI)
+npm run test:e2e         # runs Playwright E2E tests against a mock bulb
+                          # server; separate from the CI-gating `npm test`,
+                          # but also run in CI as extra steps in the
+                          # GitHub Actions workflows
 npm run build            # compiles src/ -> dist/
 npm start                # runs the compiled dist/server.js
 ```

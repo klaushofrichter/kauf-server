@@ -1,17 +1,19 @@
 import { test, expect } from '@playwright/test';
-import jwt from 'jsonwebtoken';
+import { signSession } from '../../src/session';
 
-const COOKIE_SECRET = 'e2e-test-cookie-secret';
-
-function signSessionCookie(email: string): string {
-  return jwt.sign({ email }, COOKIE_SECRET, { expiresIn: '7d' });
-}
+// signSession() reads COOKIE_SECRET lazily at call time, so setting it here
+// (this file runs in the Playwright test-runner process, separate from the
+// `npx tsx src/server.ts` webServer subprocess) just needs to happen before
+// signSession() is called below. Must match playwright.config.ts's
+// webServer.env COOKIE_SECRET so cookies signed here verify against the
+// server under test.
+process.env.COOKIE_SECRET = process.env.COOKIE_SECRET || 'e2e-test-cookie-secret';
 
 test.beforeEach(async ({ context }) => {
   await context.addCookies([
     {
       name: 'session',
-      value: signSessionCookie('e2e@example.com'),
+      value: signSession('e2e@example.com'),
       domain: 'localhost',
       path: '/',
       httpOnly: true,
@@ -27,17 +29,21 @@ test('renders a bulb card for the seeded bulb', async ({ page }) => {
   await expect(card.locator('.bulb-name')).toHaveText('E2E Test Bulb');
 });
 
-test('the on/off toggle button works without JavaScript (plain form submit)', async ({ page }) => {
-  await page.goto('/');
-  const button = page.locator('.bulb-card[data-id="kauf-bulb-e2e"] .bulb-toggle-form button');
-  const initialText = await button.textContent();
+test.describe('without JavaScript', () => {
+  test.use({ javaScriptEnabled: false });
 
-  await Promise.all([page.waitForURL('/'), button.click()]);
+  test('the on/off toggle button works without JavaScript (plain form submit)', async ({ page }) => {
+    await page.goto('/');
+    const button = page.locator('.bulb-card[data-id="kauf-bulb-e2e"] .bulb-toggle-form button');
+    const initialText = await button.textContent();
 
-  const updatedText = await page
-    .locator('.bulb-card[data-id="kauf-bulb-e2e"] .bulb-toggle-form button')
-    .textContent();
-  expect(updatedText).not.toBe(initialText);
+    await Promise.all([page.waitForURL('/'), button.click()]);
+
+    const updatedText = await page
+      .locator('.bulb-card[data-id="kauf-bulb-e2e"] .bulb-toggle-form button')
+      .textContent();
+    expect(updatedText).not.toBe(initialText);
+  });
 });
 
 test('opens the modal on card click and shows firmware/MAC details', async ({ page }) => {

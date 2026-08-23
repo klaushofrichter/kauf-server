@@ -24,7 +24,7 @@ function renderBulbList(bulbs: BulbWithState[]): string {
       const iconColor =
         bulb.online && bulb.on && bulb.r !== null ? `rgb(${bulb.r},${bulb.g},${bulb.b})` : '#999';
       return `
-    <div class="bulb-card ${statusClass}" data-id="${escapeHtml(bulb.id)}">
+    <div class="bulb-card ${statusClass}" data-id="${escapeHtml(bulb.id)}" tabindex="0" role="button">
       <svg class="bulb-icon" viewBox="0 0 24 24" style="--bulb-color: ${iconColor}"><path d="${BULB_ICON_PATH}"/></svg>
       <span class="bulb-name">${escapeHtml(bulb.name)}</span>
       <span class="bulb-status">${statusText}</span>
@@ -67,6 +67,8 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     dialog#bulb-modal { border: none; border-radius: 0.5rem; padding: 1.5rem; max-width: 320px; width: 90%; }
     dialog#bulb-modal::backdrop { background: rgba(0, 0, 0, 0.4); }
     .modal-close { float: right; background: none; border: none; font-size: 1.5rem; cursor: pointer; line-height: 1; }
+    #modal-error { color: #8b1a1a; font-size: 0.85rem; margin: 0; min-height: 1em; }
+    #modal-error:empty { display: none; }
     #bulb-modal dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem; margin: 1rem 0; }
     #bulb-modal dt { color: #666; }
     #bulb-modal label { display: block; margin: 0.75rem 0; }
@@ -91,6 +93,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
   <dialog id="bulb-modal">
     <button type="button" class="modal-close" aria-label="Close">&times;</button>
     <h2 id="modal-name"></h2>
+    <p id="modal-error"></p>
     <dl>
       <dt>MAC</dt><dd id="modal-mac"></dd>
       <dt>Firmware</dt><dd id="modal-firmware"></dd>
@@ -151,29 +154,48 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       btn.disabled = !bulb.online;
     }
 
+    function showModalError(message) {
+      var el = document.getElementById('modal-error');
+      if (el) el.textContent = message;
+    }
+
     function openModal(id) {
       currentId = id;
+      showModalError('');
       fetch('/ui/bulb/' + encodeURIComponent(id))
-        .then(function (res) { return res.json(); })
+        .then(function (res) {
+          if (!res.ok) throw new Error('Failed to load bulb (' + res.status + ')');
+          return res.json();
+        })
         .then(function (bulb) {
           fillModal(bulb);
           modal.showModal();
+        })
+        .catch(function () {
+          showModalError('Could not load bulb details. Please try again.');
         });
     }
 
     function submitChange(options) {
       if (!currentId) return;
+      showModalError('');
       fetch('/ui/bulb/' + encodeURIComponent(currentId) + '/set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(options),
       })
-        .then(function (res) { return res.json(); })
+        .then(function (res) {
+          if (!res.ok) throw new Error('Failed to update bulb (' + res.status + ')');
+          return res.json();
+        })
         .then(function (bulb) {
           if (bulb && bulb.id) {
             fillModal(bulb);
             updateCard(bulb);
           }
+        })
+        .catch(function () {
+          showModalError('Could not update bulb. Please try again.');
         });
     }
 
@@ -184,7 +206,20 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
         if (event.target.closest('.bulb-toggle-form')) return;
         openModal(card.getAttribute('data-id'));
       });
+
+      grid.addEventListener('keydown', function (event) {
+        if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
+        var card = event.target.closest('.bulb-card');
+        if (!card) return;
+        if (event.target.closest('.bulb-toggle-form')) return;
+        event.preventDefault();
+        openModal(card.getAttribute('data-id'));
+      });
     }
+
+    modal.addEventListener('click', function (event) {
+      if (event.target === modal) modal.close();
+    });
 
     document.getElementById('modal-toggle').addEventListener('click', function () {
       var isOn = document.getElementById('modal-toggle').textContent === 'Turn off';
