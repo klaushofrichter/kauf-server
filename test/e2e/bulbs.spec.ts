@@ -57,7 +57,7 @@ test('opens the modal on card click and shows firmware/MAC details', async ({ pa
   await expect(page.locator('#modal-esphome')).toHaveText('2026.3.0');
 });
 
-test('adjusting brightness in the modal updates the card without a page reload', async ({ page }) => {
+test('adjusting brightness and clicking Set updates the card without a page reload', async ({ page }) => {
   await page.goto('/');
   await page.locator('.bulb-card[data-id="kauf-bulb-e2e"]').click();
 
@@ -66,10 +66,32 @@ test('adjusting brightness in the modal updates the card without a page reload',
 
   const brightnessInput = page.locator('#modal-brightness');
   await brightnessInput.fill('80');
-  await brightnessInput.dispatchEvent('change');
+  await page.locator('#modal-set').click();
 
+  await expect(page.locator('#modal-error')).toBeEmpty();
   await expect(page.locator('#modal-status')).toHaveText('On');
 
   await page.locator('.modal-close').click();
   await expect(modal).toBeHidden();
+});
+
+test('moving the brightness slider alone does not send any request', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.bulb-card[data-id="kauf-bulb-e2e"]').click();
+
+  const modal = page.locator('#bulb-modal');
+  await expect(modal).toBeVisible();
+
+  let setRequests = 0;
+  page.on('request', (request) => {
+    if (request.url().includes('/set') && request.method() === 'POST') setRequests += 1;
+  });
+
+  const brightnessInput = page.locator('#modal-brightness');
+  await brightnessInput.fill('10');
+  await brightnessInput.fill('20');
+  await brightnessInput.fill('30');
+  await brightnessInput.dispatchEvent('change');
+
+  expect(setRequests).toBe(0);
 });

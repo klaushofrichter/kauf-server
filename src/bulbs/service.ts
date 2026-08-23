@@ -1,5 +1,5 @@
 import { listBulbs, getBulb, renameBulb, StoredBulb } from './store';
-import { getState, setState, pingBulb, SetStateOptions } from './deviceApi';
+import { getState, setState, pingBulb, SetStateOptions, DeviceRateLimitedError } from './deviceApi';
 
 export interface BulbWithState {
   id: string;
@@ -51,13 +51,22 @@ export async function getWithLiveState(id: string): Promise<BulbWithState | null
 export async function setBulbState(
   id: string,
   options: SetStateOptions
-): Promise<{ success: boolean; notFound?: boolean; bulb?: BulbWithState }> {
+): Promise<{ success: boolean; notFound?: boolean; rateLimited?: boolean; bulb?: BulbWithState }> {
   const stored = getBulb(id);
   if (!stored) {
     return { success: false, notFound: true };
   }
 
-  const success = await setState(stored.lastIp, stored.objectId, options);
+  let success: boolean;
+  try {
+    success = await setState(stored.lastIp, stored.objectId, options);
+  } catch (err) {
+    if (err instanceof DeviceRateLimitedError) {
+      return { success: false, rateLimited: true };
+    }
+    throw err;
+  }
+
   if (!success) {
     return { success: false };
   }
@@ -97,8 +106,15 @@ export async function setAllBulbsState(on: boolean): Promise<{ id: string; succe
   const stored = listBulbs();
   return Promise.all(
     stored.map(async (bulb) => {
-      const success = await setState(bulb.lastIp, bulb.objectId, { on });
-      return { id: bulb.id, success };
+      try {
+        const success = await setState(bulb.lastIp, bulb.objectId, { on });
+        return { id: bulb.id, success };
+      } catch (err) {
+        if (err instanceof DeviceRateLimitedError) {
+          return { id: bulb.id, success: false };
+        }
+        throw err;
+      }
     })
   );
 }

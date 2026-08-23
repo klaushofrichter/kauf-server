@@ -13,6 +13,11 @@ returns `401 {"error": "unauthorized"}`.
 All endpoints are rate-limited to 30 requests per 15 minutes per client.
 Exceeding it returns `429`.
 
+Separately, `POST /bulb` is also subject to a per-device limit: calls to a
+given bulb's own set-state HTTP endpoint are capped at 3 per second,
+regardless of caller. Exceeding *this* budget also returns `429`, but
+without consuming a device round-trip — see that endpoint's docs below.
+
 ## Data model
 
 A **bulb** object, returned by `GET /bulbs`, and as the base shape of
@@ -91,6 +96,7 @@ Set a bulb's on/off state, brightness, and/or color.
 **Response `200`:** the updated bulb object (base shape, freshly re-fetched after the change).
 **Response `400`:** `{"error": "invalid request"}` — a field outside its valid range/type.
 **Response `404`:** `{"error": "not found"}` — unknown `id`.
+**Response `429`:** `{"error": "rate limited"}` — this bulb's device-level budget (3 calls/second) is exhausted; no command was sent to the device. Wait and retry.
 **Response `502`:** `{"error": "bulb unreachable"}` — the bulb didn't respond to the command.
 
 ### `PUT /bulb?id=<id>`

@@ -23,8 +23,9 @@ Public web UI: https://bulbs.skylar.technology
   `online`).
 - `POST /bulb?id=<id>` — protected the same way. Sets bulb state; accepts a
   JSON body with any of `on`, `brightness` (0-100), `r`/`g`/`b` (0-255), and
-  `transition` (ms). Returns the updated bulb, 404 for an unknown id, or 502
-  if the bulb didn't respond.
+  `transition` (ms). Returns the updated bulb, 404 for an unknown id, 502 if
+  the bulb didn't respond, or 429 if the device call was rate-limited (see
+  below).
 - `PUT /bulb?id=<id>` — protected the same way. Sets a bulb's nickname;
   accepts a JSON body `{"name": "..."}`. Returns the updated bulb, 404 for
   an unknown id, or 400 if `name` is missing/empty. The nickname is
@@ -48,6 +49,15 @@ Public web UI: https://bulbs.skylar.technology
 
 All of the above are also rate-limited (30 requests per 15 minutes per
 client) to bound brute-force and runaway-client behavior.
+
+Separately, calls to a physical bulb's own set-state HTTP endpoint are
+capped at 3 per second per device IP, regardless of which route triggered
+them (`POST /bulb`, `POST /ui/bulb/:id/set`, `POST /bulbs/on`/`off`) — the
+device itself can become unresponsive under rapid repeated writes. `POST
+/bulb` and `POST /ui/bulb/:id/set` return 429 (`{"error":"rate limited"}`)
+when this budget is exhausted, without attempting the device call. The web
+UI's modal batches brightness/color changes behind a "Set" button rather
+than sending a request per slider tick, for exactly this reason.
 
 See `docs/API.md` for full request/response examples of every endpoint.
 

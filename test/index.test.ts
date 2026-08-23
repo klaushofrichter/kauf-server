@@ -126,6 +126,7 @@ describe('GET /', () => {
     expect(response.text).toContain('id="bulb-modal"');
     expect(response.text).toContain('id="modal-brightness"');
     expect(response.text).toContain('id="modal-color"');
+    expect(response.text).toContain('id="modal-set"');
   });
 
   it('shows the empty-state message when no bulbs are discovered', async () => {
@@ -299,6 +300,20 @@ describe('POST /ui/bulb/:id/set', () => {
 
     expect(response.status).toBe(502);
     expect(response.body).toEqual({ error: 'bulb unreachable' });
+  });
+
+  it('returns 429 when the device call is rate-limited', async () => {
+    vi.mocked(setBulbState).mockResolvedValue({ success: false, rateLimited: true });
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/kauf-bulb-7d49e0/set')
+      .set('Cookie', cookie)
+      .send({ on: true });
+
+    expect(response.status).toBe(429);
+    expect(response.body).toEqual({ error: 'rate limited' });
   });
 
   it('returns the re-fetched detail on success', async () => {

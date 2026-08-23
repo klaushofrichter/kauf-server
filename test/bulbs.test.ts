@@ -149,6 +149,19 @@ describe('POST /bulb', () => {
     expect(response.body).toEqual({ error: 'bulb unreachable' });
   });
 
+  it('returns 429 when the device call is rate-limited', async () => {
+    vi.mocked(setBulbState).mockResolvedValue({ success: false, rateLimited: true });
+    const app = createApp();
+
+    const response = await request(app)
+      .post('/bulb?id=kauf-bulb-7d49e0')
+      .set('Authorization', `Bearer ${TOKEN}`)
+      .send({ on: true });
+
+    expect(response.status).toBe(429);
+    expect(response.body).toEqual({ error: 'rate limited' });
+  });
+
   it('returns 200 with the updated state on success', async () => {
     vi.mocked(setBulbState).mockResolvedValue({ success: true, bulb: SAMPLE_BULB });
     const app = createApp();

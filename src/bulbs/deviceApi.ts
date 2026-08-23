@@ -1,3 +1,12 @@
+import { allowDeviceCall } from './deviceRateLimit';
+
+export class DeviceRateLimitedError extends Error {
+  constructor() {
+    super('device call rate limited');
+    this.name = 'DeviceRateLimitedError';
+  }
+}
+
 const PING_TIMEOUT_MS = 800;
 const ENTITY_TIMEOUT_MS = 2000;
 const STATE_TIMEOUT_MS = 3000;
@@ -169,6 +178,10 @@ export async function getState(ip: string, objectId: string): Promise<DeviceStat
 }
 
 export async function setState(ip: string, objectId: string, options: SetStateOptions): Promise<boolean> {
+  if (!allowDeviceCall(ip)) {
+    throw new DeviceRateLimitedError();
+  }
+
   const params = new URLSearchParams();
   const transitionMs = options.transition ?? 1000;
   params.set('transition', (transitionMs / 1000).toString());

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { pingBulb, findLightEntity, getState, setState } from '../src/bulbs/deviceApi';
+import { pingBulb, findLightEntity, getState, setState, DeviceRateLimitedError } from '../src/bulbs/deviceApi';
+import { resetDeviceRateLimit } from '../src/bulbs/deviceRateLimit';
 
 function sseResponse(text: string, status = 200): Response {
   const encoder = new TextEncoder();
@@ -145,6 +146,7 @@ describe('getState', () => {
 
 describe('setState', () => {
   beforeEach(() => {
+    resetDeviceRateLimit();
     global.fetch = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
   });
 
@@ -177,5 +179,26 @@ describe('setState', () => {
     global.fetch = vi.fn().mockRejectedValue(new Error('timeout'));
 
     expect(await setState('192.168.1.26', 'kauf_bulb_7d49e0', { on: true })).toBe(false);
+  });
+
+  it('throws DeviceRateLimitedError on the 4th call to the same IP within a second, without calling fetch', async () => {
+    await setState('192.168.1.26', 'kauf_bulb_7d49e0', { on: true });
+    await setState('192.168.1.26', 'kauf_bulb_7d49e0', { on: true });
+    await setState('192.168.1.26', 'kauf_bulb_7d49e0', { on: true });
+    const fetchCallsBefore = (global.fetch as any).mock.calls.length;
+
+    await expect(setState('192.168.1.26', 'kauf_bulb_7d49e0', { on: true })).rejects.toBeInstanceOf(
+      DeviceRateLimitedError
+    );
+    expect((global.fetch as any).mock.calls.length).toBe(fetchCallsBefore);
+  });
+
+  it('does not rate-limit a different IP after another IP is exhausted', async () => {
+    await setState('192.168.1.26', 'kauf_bulb_7d49e0', { on: true });
+    await setState('192.168.1.26', 'kauf_bulb_7d49e0', { on: true });
+    await setState('192.168.1.26', 'kauf_bulb_7d49e0', { on: true });
+
+    const success = await setState('192.168.1.50', 'other_bulb', { on: true });
+    expect(success).toBe(true);
   });
 });

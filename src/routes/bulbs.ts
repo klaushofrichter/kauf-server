@@ -79,6 +79,11 @@ bulbsRouter.post(
       return;
     }
 
+    if (result.rateLimited) {
+      res.status(429).json({ error: 'rate limited' });
+      return;
+    }
+
     if (!result.success) {
       res.status(502).json({ error: 'bulb unreachable' });
       return;

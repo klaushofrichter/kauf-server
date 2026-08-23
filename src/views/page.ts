@@ -107,6 +107,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     <label>Color
       <input id="modal-color" type="color">
     </label>
+    <button id="modal-set" type="button">Set</button>
   </dialog>
 
   <script>
@@ -140,6 +141,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       var colorInput = document.getElementById('modal-color');
       colorInput.value = bulb.r != null ? rgbToHex(bulb.r, bulb.g, bulb.b) : '#ffffff';
       colorInput.disabled = !bulb.online;
+      document.getElementById('modal-set').disabled = !bulb.online;
     }
 
     function updateCard(bulb) {
@@ -185,6 +187,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
         body: JSON.stringify(options),
       })
         .then(function (res) {
+          if (res.status === 429) throw new Error('rate-limited');
           if (!res.ok) throw new Error('Failed to update bulb (' + res.status + ')');
           return res.json();
         })
@@ -194,8 +197,12 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
             updateCard(bulb);
           }
         })
-        .catch(function () {
-          showModalError('Could not update bulb. Please try again.');
+        .catch(function (err) {
+          if (err && err.message === 'rate-limited') {
+            showModalError('Too many requests - please wait a moment and try again.');
+          } else {
+            showModalError('Could not update bulb. Please try again.');
+          }
         });
     }
 
@@ -226,13 +233,10 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       submitChange({ on: !isOn });
     });
 
-    document.getElementById('modal-brightness').addEventListener('change', function (event) {
-      submitChange({ brightness: Number(event.target.value) });
-    });
-
-    document.getElementById('modal-color').addEventListener('change', function (event) {
-      var rgb = hexToRgb(event.target.value);
-      submitChange({ r: rgb.r, g: rgb.g, b: rgb.b });
+    document.getElementById('modal-set').addEventListener('click', function () {
+      var brightness = Number(document.getElementById('modal-brightness').value);
+      var rgb = hexToRgb(document.getElementById('modal-color').value);
+      submitChange({ brightness: brightness, r: rgb.r, g: rgb.g, b: rgb.b });
     });
 
     document.querySelector('.modal-close').addEventListener('click', function () {

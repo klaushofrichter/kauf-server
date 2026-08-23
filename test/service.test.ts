@@ -9,10 +9,11 @@ vi.mock('../src/bulbs/deviceApi', () => ({
   getState: vi.fn(),
   setState: vi.fn(),
   pingBulb: vi.fn(),
+  DeviceRateLimitedError: class DeviceRateLimitedError extends Error {},
 }));
 
 import { listBulbs, getBulb, renameBulb } from '../src/bulbs/store';
-import { getState, setState, pingBulb } from '../src/bulbs/deviceApi';
+import { getState, setState, pingBulb, DeviceRateLimitedError } from '../src/bulbs/deviceApi';
 import { listWithLiveState, getWithLiveState, setBulbState, renameBulbAndGetState, getFullDetail, setAllBulbsState } from '../src/bulbs/service';
 
 const STORED = {
@@ -127,6 +128,16 @@ describe('setBulbState', () => {
       b: 0,
     });
   });
+
+  it('reports rateLimited when the device call is rate-limited', async () => {
+    vi.mocked(getBulb).mockReturnValue(STORED);
+    vi.mocked(setState).mockRejectedValue(new DeviceRateLimitedError());
+
+    expect(await setBulbState('kauf-bulb-7d49e0', { on: true })).toEqual({
+      success: false,
+      rateLimited: true,
+    });
+  });
 });
 
 describe('renameBulbAndGetState', () => {
@@ -223,5 +234,22 @@ describe('setAllBulbsState', () => {
     vi.mocked(listBulbs).mockReturnValue([]);
 
     expect(await setAllBulbsState(true)).toEqual([]);
+  });
+
+  it('reports a rate-limited bulb as unsuccessful without failing the whole batch', async () => {
+    const bulbA = { ...STORED, id: 'a', lastIp: '1.1.1.1', objectId: 'obj_a' };
+    const bulbB = { ...STORED, id: 'b', lastIp: '2.2.2.2', objectId: 'obj_b' };
+    vi.mocked(listBulbs).mockReturnValue([bulbA, bulbB]);
+    vi.mocked(setState).mockImplementation(async (ip: string) => {
+      if (ip === '1.1.1.1') throw new DeviceRateLimitedError();
+      return true;
+    });
+
+    const results = await setAllBulbsState(true);
+
+    expect(results).toEqual([
+      { id: 'a', success: false },
+      { id: 'b', success: true },
+    ]);
   });
 });
