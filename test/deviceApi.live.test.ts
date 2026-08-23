@@ -47,30 +47,37 @@ describe.skipIf(!ping || !liveObjectId)('deviceApi against a real live bulb', ()
     const original = await getState(LIVE_BULB_IP, liveObjectId as string);
     expect(original).not.toBeNull();
 
-    // The device's RGB color mode normalizes chrominance so the max
-    // channel is always 255 (brightness is separate) - an arbitrary
-    // low-value color like {r:10,g:20,b:30} comes back rescaled
-    // (discovered by this test against the real device). Use a color
-    // that's already normalized (max channel = 255) so the round-trip
-    // is exact and doesn't depend on device-internal rescaling math.
-    const testValue = { on: true, brightness: 42, r: 85, g: 170, b: 255 };
-    const setSuccess = await setState(LIVE_BULB_IP, liveObjectId as string, testValue);
-    expect(setSuccess).toBe(true);
+    // Restoring the bulb's original state MUST run even if an assertion
+    // above throws - a previous version of this test skipped the restore
+    // on assertion failure and left a real physical bulb in a mutated
+    // state (discovered the hard way). The finally block below is load
+    // bearing.
+    try {
+      // The device's RGB color mode normalizes chrominance so the max
+      // channel is always 255 (brightness is separate) - an arbitrary
+      // low-value color like {r:10,g:20,b:30} comes back rescaled
+      // (discovered by this test against the real device). Use a color
+      // that's already normalized (max channel = 255) so the round-trip
+      // is exact and doesn't depend on device-internal rescaling math.
+      const testValue = { on: true, brightness: 42, r: 85, g: 170, b: 255 };
+      const setSuccess = await setState(LIVE_BULB_IP, liveObjectId as string, testValue);
+      expect(setSuccess).toBe(true);
 
-    const afterSet = await getState(LIVE_BULB_IP, liveObjectId as string);
-    expect(afterSet).toEqual(testValue);
+      const afterSet = await getState(LIVE_BULB_IP, liveObjectId as string);
+      expect(afterSet).toEqual(testValue);
+    } finally {
+      const restoreSuccess = await setState(LIVE_BULB_IP, liveObjectId as string, {
+        on: original!.on,
+        brightness: original!.brightness ?? undefined,
+        r: original!.r ?? undefined,
+        g: original!.g ?? undefined,
+        b: original!.b ?? undefined,
+      });
+      expect(restoreSuccess).toBe(true);
 
-    const restoreSuccess = await setState(LIVE_BULB_IP, liveObjectId as string, {
-      on: original!.on,
-      brightness: original!.brightness ?? undefined,
-      r: original!.r ?? undefined,
-      g: original!.g ?? undefined,
-      b: original!.b ?? undefined,
-    });
-    expect(restoreSuccess).toBe(true);
-
-    const afterRestore = await getState(LIVE_BULB_IP, liveObjectId as string);
-    expect(afterRestore).toEqual(original);
+      const afterRestore = await getState(LIVE_BULB_IP, liveObjectId as string);
+      expect(afterRestore).toEqual(original);
+    }
   });
 
   it('returns null/false against a real closed port on the same host network (unreachable device simulation)', async () => {
