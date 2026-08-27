@@ -5,7 +5,7 @@ on:
     branches: [production]
 
 permissions:
-  contents: read
+  contents: write   # create the release tag
   packages: write
 
 jobs:
@@ -13,6 +13,8 @@ jobs:
     runs-on: [self-hosted, k3s]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # release notes are computed from history and tags
 
       - name: Install kubectl and configure in-cluster access
         run: |
@@ -31,6 +33,25 @@ jobs:
           kubectl config set-context in-cluster --cluster=in-cluster --user=deploy-sa --namespace=bulbs
           kubectl config use-context in-cluster
 
+      - name: Generate the version
+        id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Calendar versioning, generated here rather than carried in the
+          # sources: nothing to remember to bump, and the number says when the
+          # build shipped. Dated in Central time so an evening deploy is not
+          # filed under tomorrow.
+          DATE=$(TZ=America/Chicago date +%Y-%m-%d)
+          # Same-day counter, derived from the releases that already exist —
+          # the tags are the state, so nothing needs storing.
+          TODAY=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 \
+                    --json tagName -q '.[].tagName' | grep -c "^v${DATE}\." || true)
+          VERSION="${DATE}.$((TODAY + 1))"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Releasing v$VERSION"
+
       - name: Log in to ghcr.io
         uses: docker/login-action@v3
         with:
@@ -43,7 +64,17 @@ jobs:
         with:
           context: .
           push: true
-          tags: ghcr.io/klaushofrichter/kauf-server:${{ github.sha }}
+          # latest is published here rather than from main, so that pulling it
+          # gives what is actually deployed rather than an untested build.
+          # APP_VERSION has no "v" prefix - it's what /health and the web UI
+          # display, matching the bare calendar-version format directly; the
+          # git/image tags below keep the conventional "v" prefix separately.
+          build-args: |
+            APP_VERSION=${{ steps.ver.outputs.version }}
+          tags: |
+            ghcr.io/klaushofrichter/kauf-server:${{ github.sha }}
+            ghcr.io/klaushofrichter/kauf-server:v${{ steps.ver.outputs.version }}
+            ghcr.io/klaushofrichter/kauf-server:latest
 
       - name: Prune old Docker images
         run: docker system prune -af --filter "until=168h" || true
@@ -77,3 +108,45 @@ jobs:
           set -euo pipefail
           kubectl wait --for=condition=Ready ksvc/bulbs -n bulbs --timeout=120s
           kubectl get ksvc bulbs -n bulbs
+
+      - name: Tag the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$TAG already released — version not bumped, skipping."
+            exit 0
+          fi
+          # Notes: whatever was curated under Unreleased, then the commits
+          # since the previous release. Neither needs maintaining for a release
+          # to be readable.
+          : > /tmp/notes.md
+          awk '
+            /^## \[Unreleased\]/ { grab = 1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' CHANGELOG.md | sed '/^[[:space:]]*$/d' > /tmp/curated.md
+          if [ -s /tmp/curated.md ]; then
+            cat /tmp/curated.md >> /tmp/notes.md
+            printf '\n' >> /tmp/notes.md
+          fi
+          PREV=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1 \
+                   --json tagName -q '.[0].tagName' 2>/dev/null || true)
+          printf '### Changes\n\n' >> /tmp/notes.md
+          if [ -n "$PREV" ] && git rev-parse "$PREV" >/dev/null 2>&1; then
+            git log --no-merges --pretty='- %s' "${PREV}..HEAD" >> /tmp/notes.md
+            printf '\n**Full diff**: %s/compare/%s...%s\n' \
+              "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" "$PREV" "$TAG" >> /tmp/notes.md
+          else
+            git log --no-merges --pretty='- %s' -20 >> /tmp/notes.md
+          fi
+          printf '\nImage: `ghcr.io/klaushofrichter/kauf-server:%s`\n' "$TAG" >> /tmp/notes.md
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file /tmp/notes.md
+          echo "Released $TAG"

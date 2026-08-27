@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 
 vi.mock('../src/bulbs/service', () => ({
@@ -128,6 +128,7 @@ describe('GET /', () => {
 
     expect(response.text).toContain('id="bulb-modal"');
     expect(response.text).toContain('id="modal-brightness"');
+    expect(response.text).toContain('id="modal-brightness-value"');
     expect(response.text).toContain('id="modal-color"');
     expect(response.text).toContain('id="modal-set"');
     expect(response.text).toContain('id="modal-name-input"');
@@ -142,6 +143,34 @@ describe('GET /', () => {
     const response = await request(app).get('/').set('Cookie', cookie);
 
     expect(response.text).toContain('No bulbs discovered yet.');
+  });
+});
+
+describe('GET / build version', () => {
+  const original = process.env.APP_VERSION;
+  afterEach(() => {
+    if (original === undefined) delete process.env.APP_VERSION;
+    else process.env.APP_VERSION = original;
+  });
+
+  it('shows the version stamped in at build time', async () => {
+    process.env.APP_VERSION = '2026-08-24.1';
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/').set('Cookie', cookie);
+
+    expect(response.text).toContain('id="app-version" class="app-version">2026-08-24.1<');
+  });
+
+  it('falls back to dev when nothing was stamped in', async () => {
+    delete process.env.APP_VERSION;
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/').set('Cookie', cookie);
+
+    expect(response.text).toContain('id="app-version" class="app-version">dev<');
   });
 });
 

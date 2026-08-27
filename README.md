@@ -12,7 +12,9 @@ Public web UI: https://bulbs.skylar.technology
 
 ## Endpoints
 
-- `GET /health` — unprotected liveness check, returns `{"status":"ok"}`.
+- `GET /health` — unprotected liveness check, returns
+  `{"status":"ok","version":"<version>"}` (see Releases below; `"dev"` for a
+  non-release build).
 - `GET /bulbs` — protected by a Bearer token (`Authorization: Bearer <token>`,
   see `BULBS_API_TOKENS` below). Returns `{"bulbs":[...]}`, the discovered
   bulb directory merged with each bulb's live state.
@@ -40,7 +42,8 @@ Public web UI: https://bulbs.skylar.technology
   rather than waiting for the automatic interval. No body. Returns
   `{"bulbsFound": <number>, "bulbs": [...]}` (same shape as `GET /bulbs`).
 - `GET /` — web UI, requires signing in with Google (restricted to emails in
-  `ALLOWED_EMAILS`).
+  `ALLOWED_EMAILS`). The header shows the running build's version (see
+  Releases below) to the left of the signed-in email.
 - `POST /ui/bulb/:id/toggle` — web UI action that toggles a bulb on/off;
   requires the same session auth as `GET /`, then redirects back to `/`.
 - `POST /ui/bulb/:id/name` — web UI action used by the modal's nickname
@@ -105,9 +108,35 @@ bulbs' `firstDiscovered` timestamps and any custom names, neither of which
 can be re-derived from a fresh scan, and the PVC is backed up via Velero.
 
 - Push to `main` → tests run, image built and pushed to
-  `ghcr.io/klaushofrichter/kauf-server` (tags `latest` and the commit SHA).
+  `ghcr.io/klaushofrichter/kauf-server` (tags `main` and the commit SHA).
 - PR into `production` → tests + CodeQL gate.
-- Push to `production` → image built/pushed tagged with the commit SHA,
-  `kube-setup`'s `manifests/bulbs/bulbs-ksvc.yaml` updated with the new
-  image tag and applied to the cluster via `kubectl` on a self-hosted
-  runner.
+- Push to `production` → cuts a release (see below), image built/pushed
+  tagged with the commit SHA, the version, and `latest`; `kube-setup`'s
+  `manifests/bulbs/bulbs-ksvc.yaml` updated with the new (SHA-tagged) image
+  and applied to the cluster via `kubectl` on a self-hosted runner.
+
+### Releases
+
+Merging into `production` cuts a release. The version is **generated at
+deploy time** as `YYYY-MM-DD.N` (e.g. `2026-08-24.1`), where `N` counts that
+day's releases — there is no version in the sources to bump or forget. Dates
+are Central, so an evening deploy is not filed under tomorrow. The same
+value is what `GET /health` and the web UI header show; the git/image tags
+carry the conventional `v` prefix (`v2026-08-24.1`) but the displayed/API
+value does not.
+
+```
+ghcr.io/klaushofrichter/kauf-server:v2026-08-24.1   the released build
+ghcr.io/klaushofrichter/kauf-server:latest          whatever production runs
+ghcr.io/klaushofrichter/kauf-server:main            newest main build, not deployed
+ghcr.io/klaushofrichter/kauf-server:<sha>           every build, by commit
+```
+
+`latest` is published by the production deploy rather than by `main`, so
+pulling it gives what is actually deployed instead of an untested build.
+
+Release notes are generated from `CHANGELOG.md`'s `## [Unreleased]` section
+(curate it before merging to `production` if you want specific notes
+published) plus the commits since the previous release. See
+[CHANGELOG.md](CHANGELOG.md) and the
+[releases page](https://github.com/klaushofrichter/kauf-server/releases).

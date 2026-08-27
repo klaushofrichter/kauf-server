@@ -42,6 +42,9 @@ jobs:
         with:
           context: .
           push: true
+          # latest is published by the production deploy, not here, so that
+          # pulling it gives what is actually deployed rather than an
+          # untested main build.
           tags: |
-            ghcr.io/klaushofrichter/kauf-server:latest
+            ghcr.io/klaushofrichter/kauf-server:main
             ghcr.io/klaushofrichter/kauf-server:${{ github.sha }}

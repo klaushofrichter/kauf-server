@@ -1,4 +1,5 @@
 import { BulbWithState } from '../bulbs/service';
+import { appVersion } from '../version';
 
 function escapeHtml(value: string): string {
   return value
@@ -51,6 +52,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
     a.logout { color: #666; text-decoration: none; font-size: 0.9rem; }
     a.logout:hover { text-decoration: underline; }
+    .app-version { color: #999; font-size: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     #bulbs-empty { color: #888; font-style: italic; }
     .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
     .toolbar form { margin: 0; }
@@ -87,6 +89,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
   <header>
     <h1>Kauf Bulbs</h1>
     <div>
+      <span id="app-version" class="app-version">${escapeHtml(appVersion())}</span> &middot;
       <span>${escapeHtml(email)}</span> &middot;
       <a class="logout" href="/auth/logout">Sign out</a>
     </div>
@@ -123,6 +126,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
           <label>R<input id="modal-r" type="number" min="0" max="255"></label>
           <label>G<input id="modal-g" type="number" min="0" max="255"></label>
           <label>B<input id="modal-b" type="number" min="0" max="255"></label>
+          <label>Brightness<input id="modal-brightness-value" type="number" min="0" max="100"></label>
         </div>
       </div>
     </label>
@@ -155,9 +159,13 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       var toggleBtn = document.getElementById('modal-toggle');
       toggleBtn.textContent = bulb.on ? 'Turn off' : 'Turn on';
       toggleBtn.disabled = !bulb.online;
+      var brightness = bulb.brightness != null ? bulb.brightness : 0;
       var brightnessInput = document.getElementById('modal-brightness');
-      brightnessInput.value = bulb.brightness != null ? bulb.brightness : 0;
+      brightnessInput.value = brightness;
       brightnessInput.disabled = !bulb.online;
+      var brightnessValueInput = document.getElementById('modal-brightness-value');
+      brightnessValueInput.value = brightness;
+      brightnessValueInput.disabled = !bulb.online;
       var r = bulb.r != null ? bulb.r : 255;
       var g = bulb.g != null ? bulb.g : 255;
       var b = bulb.b != null ? bulb.b : 255;
@@ -325,8 +333,16 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       });
     });
 
+    document.getElementById('modal-brightness').addEventListener('input', function () {
+      document.getElementById('modal-brightness-value').value = this.value;
+    });
+
+    document.getElementById('modal-brightness-value').addEventListener('input', function () {
+      document.getElementById('modal-brightness').value = this.value;
+    });
+
     document.getElementById('modal-set').addEventListener('click', function () {
-      var brightness = Number(document.getElementById('modal-brightness').value);
+      var brightness = Number(document.getElementById('modal-brightness-value').value);
       var rgb = currentRgb();
       submitChange({ brightness: brightness, r: rgb.r, g: rgb.g, b: rgb.b });
     });
