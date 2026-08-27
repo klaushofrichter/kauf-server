@@ -6,7 +6,14 @@ import { requireAuth } from '../middleware/requireAuth';
 import { createAuthRateLimit } from '../middleware/authRateLimit';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { verifySession } from '../session';
-import { listWithLiveState, getWithLiveState, getFullDetail, setBulbState, setAllBulbsState } from '../bulbs/service';
+import {
+  listWithLiveState,
+  getWithLiveState,
+  getFullDetail,
+  setBulbState,
+  setAllBulbsState,
+  renameBulbAndGetState,
+} from '../bulbs/service';
 import { runDiscoveryScan } from '../bulbs/discovery';
 import { parseSetOptions } from '../bulbs/validation';
 
@@ -80,6 +87,29 @@ indexRouter.post(
     }
     if (!result.success) {
       res.status(502).json({ error: 'bulb unreachable' });
+      return;
+    }
+
+    const detail = await getFullDetail(req.params.id);
+    res.status(200).json(detail);
+  })
+);
+
+indexRouter.post(
+  '/ui/bulb/:id/name',
+  createAuthRateLimit(),
+  requireAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const name = (req.body ?? {}).name;
+    if (typeof name !== 'string' || name.length === 0) {
+      res.status(400).json({ error: 'invalid request' });
+      return;
+    }
+
+    const result = await renameBulbAndGetState(req.params.id, name);
+
+    if (result.notFound) {
+      res.status(404).json({ error: 'not found' });
       return;
     }
 

@@ -64,15 +64,23 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     .bulb-card.off .bulb-status { background: #eee; color: #555; }
     .bulb-card.offline .bulb-status { background: #f7d4d4; color: #8b1a1a; }
     .bulb-toggle-form { margin: 0; }
-    dialog#bulb-modal { border: none; border-radius: 0.5rem; padding: 1.5rem; max-width: 320px; width: 90%; }
+    dialog#bulb-modal { border: none; border-radius: 0.75rem; padding: 2rem; max-width: 460px; width: 92%; }
     dialog#bulb-modal::backdrop { background: rgba(0, 0, 0, 0.4); }
-    .modal-close { float: right; background: none; border: none; font-size: 1.5rem; cursor: pointer; line-height: 1; }
-    #modal-error { color: #8b1a1a; font-size: 0.85rem; margin: 0; min-height: 1em; }
+    .modal-close { float: right; background: none; border: none; font-size: 1.75rem; cursor: pointer; line-height: 1; }
+    #modal-error { color: #8b1a1a; font-size: 0.9rem; margin: 0; min-height: 1.2em; }
     #modal-error:empty { display: none; }
-    #bulb-modal dl { display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem; margin: 1rem 0; }
+    #bulb-modal dl { display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.75rem; margin: 1rem 0; }
     #bulb-modal dt { color: #666; }
-    #bulb-modal label { display: block; margin: 0.75rem 0; }
-    #bulb-modal input[type="range"], #bulb-modal input[type="color"] { width: 100%; }
+    #bulb-modal label { display: block; margin: 1rem 0; font-weight: 600; }
+    #bulb-modal input[type="range"] { width: 100%; margin-top: 0.35rem; }
+    .modal-name-row { display: flex; gap: 0.5rem; align-items: center; margin: 1rem 0; }
+    .modal-name-row input[type="text"] { flex: 1; padding: 0.5rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 0.35rem; }
+    .modal-color-row { display: flex; gap: 1rem; align-items: center; margin-top: 0.35rem; }
+    #modal-color { width: 4rem; height: 4rem; padding: 0; border: 1px solid #ccc; border-radius: 0.35rem; cursor: pointer; }
+    .modal-rgb-inputs { display: flex; gap: 0.5rem; }
+    .modal-rgb-inputs label { margin: 0; font-weight: normal; font-size: 0.8rem; color: #666; display: flex; flex-direction: column; gap: 0.15rem; }
+    .modal-rgb-inputs input[type="number"] { width: 4rem; padding: 0.35rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 0.35rem; }
+    #modal-set { margin-top: 2rem; padding: 0.6rem 1.2rem; font-size: 1rem; }
   </style>
 </head>
 <body>
@@ -94,6 +102,10 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     <button type="button" class="modal-close" aria-label="Close">&times;</button>
     <h2 id="modal-name"></h2>
     <p id="modal-error"></p>
+    <div class="modal-name-row">
+      <input id="modal-name-input" type="text" aria-label="Nickname">
+      <button id="modal-name-save" type="button">Save name</button>
+    </div>
     <dl>
       <dt>MAC</dt><dd id="modal-mac"></dd>
       <dt>Firmware</dt><dd id="modal-firmware"></dd>
@@ -105,7 +117,14 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       <input id="modal-brightness" type="range" min="0" max="100">
     </label>
     <label>Color
-      <input id="modal-color" type="color">
+      <div class="modal-color-row">
+        <input id="modal-color" type="color">
+        <div class="modal-rgb-inputs">
+          <label>R<input id="modal-r" type="number" min="0" max="255"></label>
+          <label>G<input id="modal-g" type="number" min="0" max="255"></label>
+          <label>B<input id="modal-b" type="number" min="0" max="255"></label>
+        </div>
+      </div>
     </label>
     <button id="modal-set" type="button">Set</button>
   </dialog>
@@ -128,6 +147,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
 
     function fillModal(bulb) {
       document.getElementById('modal-name').textContent = bulb.name;
+      document.getElementById('modal-name-input').value = bulb.name;
       document.getElementById('modal-mac').textContent = bulb.mac;
       document.getElementById('modal-firmware').textContent = bulb.firmwareVersion || 'unknown';
       document.getElementById('modal-esphome').textContent = bulb.esphomeVersion || 'unknown';
@@ -138,10 +158,29 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       var brightnessInput = document.getElementById('modal-brightness');
       brightnessInput.value = bulb.brightness != null ? bulb.brightness : 0;
       brightnessInput.disabled = !bulb.online;
+      var r = bulb.r != null ? bulb.r : 255;
+      var g = bulb.g != null ? bulb.g : 255;
+      var b = bulb.b != null ? bulb.b : 255;
       var colorInput = document.getElementById('modal-color');
-      colorInput.value = bulb.r != null ? rgbToHex(bulb.r, bulb.g, bulb.b) : '#ffffff';
+      colorInput.value = rgbToHex(r, g, b);
       colorInput.disabled = !bulb.online;
+      var rInput = document.getElementById('modal-r');
+      var gInput = document.getElementById('modal-g');
+      var bInput = document.getElementById('modal-b');
+      rInput.value = r;
+      gInput.value = g;
+      bInput.value = b;
+      rInput.disabled = !bulb.online;
+      gInput.disabled = !bulb.online;
+      bInput.disabled = !bulb.online;
       document.getElementById('modal-set').disabled = !bulb.online;
+    }
+
+    function currentRgb() {
+      var r = Number(document.getElementById('modal-r').value);
+      var g = Number(document.getElementById('modal-g').value);
+      var b = Number(document.getElementById('modal-b').value);
+      return { r: r, g: g, b: b };
     }
 
     function updateCard(bulb) {
@@ -150,6 +189,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       card.className = 'bulb-card ' + (bulb.online ? (bulb.on ? 'on' : 'off') : 'offline');
       var icon = card.querySelector('.bulb-icon');
       icon.style.setProperty('--bulb-color', bulb.online && bulb.on && bulb.r != null ? 'rgb(' + bulb.r + ',' + bulb.g + ',' + bulb.b + ')' : '#999');
+      card.querySelector('.bulb-name').textContent = bulb.name;
       card.querySelector('.bulb-status').textContent = bulb.online ? (bulb.on ? 'On' : 'Off') : 'Offline';
       var btn = card.querySelector('.bulb-toggle-form button');
       btn.textContent = bulb.on ? 'Turn off' : 'Turn on';
@@ -206,6 +246,34 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
         });
     }
 
+    function submitName(name) {
+      if (!currentId) return;
+      showModalError('');
+      fetch('/ui/bulb/' + encodeURIComponent(currentId) + '/name', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name }),
+      })
+        .then(function (res) {
+          if (res.status === 429) throw new Error('rate-limited');
+          if (!res.ok) throw new Error('Failed to update name (' + res.status + ')');
+          return res.json();
+        })
+        .then(function (bulb) {
+          if (bulb && bulb.id) {
+            fillModal(bulb);
+            updateCard(bulb);
+          }
+        })
+        .catch(function (err) {
+          if (err && err.message === 'rate-limited') {
+            showModalError('Too many requests - please wait a moment and try again.');
+          } else {
+            showModalError('Could not save nickname. Please try again.');
+          }
+        });
+    }
+
     if (grid) {
       grid.addEventListener('click', function (event) {
         var card = event.target.closest('.bulb-card');
@@ -225,7 +293,17 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     }
 
     modal.addEventListener('click', function (event) {
-      if (event.target === modal) modal.close();
+      // Checking event.target === modal (the usual backdrop-click pattern)
+      // misfires here: closing the native color-picker popup dispatches a
+      // click whose target is the dialog itself, not just a real backdrop
+      // click. Compare against the dialog's actual box instead.
+      var rect = modal.getBoundingClientRect();
+      var inDialog =
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom;
+      if (!inDialog) modal.close();
     });
 
     document.getElementById('modal-toggle').addEventListener('click', function () {
@@ -233,10 +311,33 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
       submitChange({ on: !isOn });
     });
 
+    document.getElementById('modal-color').addEventListener('input', function () {
+      var rgb = hexToRgb(this.value);
+      document.getElementById('modal-r').value = rgb.r;
+      document.getElementById('modal-g').value = rgb.g;
+      document.getElementById('modal-b').value = rgb.b;
+    });
+
+    ['modal-r', 'modal-g', 'modal-b'].forEach(function (id) {
+      document.getElementById(id).addEventListener('input', function () {
+        var rgb = currentRgb();
+        document.getElementById('modal-color').value = rgbToHex(rgb.r, rgb.g, rgb.b);
+      });
+    });
+
     document.getElementById('modal-set').addEventListener('click', function () {
       var brightness = Number(document.getElementById('modal-brightness').value);
-      var rgb = hexToRgb(document.getElementById('modal-color').value);
+      var rgb = currentRgb();
       submitChange({ brightness: brightness, r: rgb.r, g: rgb.g, b: rgb.b });
+    });
+
+    document.getElementById('modal-name-save').addEventListener('click', function () {
+      var name = document.getElementById('modal-name-input').value.trim();
+      if (!name) {
+        showModalError('Nickname cannot be empty.');
+        return;
+      }
+      submitName(name);
     });
 
     document.querySelector('.modal-close').addEventListener('click', function () {

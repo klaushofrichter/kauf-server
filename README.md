@@ -43,6 +43,10 @@ Public web UI: https://bulbs.skylar.technology
   `ALLOWED_EMAILS`).
 - `POST /ui/bulb/:id/toggle` — web UI action that toggles a bulb on/off;
   requires the same session auth as `GET /`, then redirects back to `/`.
+- `POST /ui/bulb/:id/name` — web UI action used by the modal's nickname
+  editor; requires the same session auth, accepts `{"name": "..."}`, and
+  returns the re-fetched bulb detail JSON (or 400 for an empty name, 404 for
+  an unknown id).
 - `GET /auth/google/callback`, `GET /auth/logout` — OAuth plumbing for the
   web UI.
 - `GET /favicon.png` — unprotected, serves the site favicon.

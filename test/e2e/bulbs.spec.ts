@@ -75,6 +75,22 @@ test('adjusting brightness and clicking Set updates the card without a page relo
   await expect(modal).toBeHidden();
 });
 
+test('editing the nickname and clicking Save name updates the card without a page reload', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.bulb-card[data-id="kauf-bulb-e2e"]').click();
+
+  const modal = page.locator('#bulb-modal');
+  await expect(modal).toBeVisible();
+
+  const nameInput = page.locator('#modal-name-input');
+  await nameInput.fill('Renamed Bulb');
+  await page.locator('#modal-name-save').click();
+
+  await expect(page.locator('#modal-error')).toBeEmpty();
+  await expect(page.locator('#modal-name')).toHaveText('Renamed Bulb');
+  await expect(page.locator('.bulb-card[data-id="kauf-bulb-e2e"] .bulb-name')).toHaveText('Renamed Bulb');
+});
+
 test('moving the brightness slider alone does not send any request', async ({ page }) => {
   await page.goto('/');
   await page.locator('.bulb-card[data-id="kauf-bulb-e2e"]').click();

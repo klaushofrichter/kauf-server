@@ -7,6 +7,7 @@ vi.mock('../src/bulbs/service', () => ({
   getFullDetail: vi.fn(),
   setBulbState: vi.fn(),
   setAllBulbsState: vi.fn(),
+  renameBulbAndGetState: vi.fn(),
 }));
 
 vi.mock('../src/bulbs/discovery', () => ({
@@ -21,6 +22,7 @@ import {
   getFullDetail,
   setBulbState,
   setAllBulbsState,
+  renameBulbAndGetState,
 } from '../src/bulbs/service';
 import { runDiscoveryScan } from '../src/bulbs/discovery';
 
@@ -30,6 +32,7 @@ beforeEach(() => {
   vi.mocked(getFullDetail).mockReset();
   vi.mocked(setBulbState).mockReset();
   vi.mocked(setAllBulbsState).mockReset();
+  vi.mocked(renameBulbAndGetState).mockReset();
   vi.mocked(runDiscoveryScan).mockReset();
 });
 
@@ -127,6 +130,8 @@ describe('GET /', () => {
     expect(response.text).toContain('id="modal-brightness"');
     expect(response.text).toContain('id="modal-color"');
     expect(response.text).toContain('id="modal-set"');
+    expect(response.text).toContain('id="modal-name-input"');
+    expect(response.text).toContain('id="modal-name-save"');
   });
 
   it('shows the empty-state message when no bulbs are discovered', async () => {
@@ -330,6 +335,73 @@ describe('POST /ui/bulb/:id/set', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(DETAIL_BULB);
     expect(setBulbState).toHaveBeenCalledWith('kauf-bulb-7d49e0', { brightness: 55 });
+  });
+});
+
+describe('POST /ui/bulb/:id/name', () => {
+  it('redirects to Google sign-in when there is no session cookie', async () => {
+    const app = createApp();
+    const response = await request(app).post('/ui/bulb/kauf-bulb-7d49e0/name').send({ name: 'Kitchen' });
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain('accounts.google.com');
+  });
+
+  it('returns 400 for a missing name', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/kauf-bulb-7d49e0/name')
+      .set('Cookie', cookie)
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'invalid request' });
+    expect(renameBulbAndGetState).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 for an empty name', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/kauf-bulb-7d49e0/name')
+      .set('Cookie', cookie)
+      .send({ name: '' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'invalid request' });
+  });
+
+  it('returns 404 for an unknown id', async () => {
+    vi.mocked(renameBulbAndGetState).mockResolvedValue({ success: false, notFound: true });
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/nonexistent/name')
+      .set('Cookie', cookie)
+      .send({ name: 'Kitchen' });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'not found' });
+  });
+
+  it('renames the bulb and returns the re-fetched detail on success', async () => {
+    vi.mocked(renameBulbAndGetState).mockResolvedValue({ success: true, bulb: DETAIL_BULB });
+    vi.mocked(getFullDetail).mockResolvedValue({ ...DETAIL_BULB, name: 'Kitchen' });
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/kauf-bulb-7d49e0/name')
+      .set('Cookie', cookie)
+      .send({ name: 'Kitchen' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ...DETAIL_BULB, name: 'Kitchen' });
+    expect(renameBulbAndGetState).toHaveBeenCalledWith('kauf-bulb-7d49e0', 'Kitchen');
   });
 });
 
