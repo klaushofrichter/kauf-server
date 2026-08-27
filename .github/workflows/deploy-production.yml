@@ -43,7 +43,7 @@ jobs:
           # sources: nothing to remember to bump, and the number says when the
           # build shipped. Dated in Central time so an evening deploy is not
           # filed under tomorrow.
-          DATE=$(TZ=America/Chicago date +%Y-%m-%d)
+          DATE=$(TZ=America/Chicago date +%Y.%m.%d)
           # Same-day counter, derived from the releases that already exist —
           # the tags are the state, so nothing needs storing.
           TODAY=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 \

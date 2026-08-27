@@ -154,13 +154,13 @@ describe('GET / build version', () => {
   });
 
   it('shows the version stamped in at build time', async () => {
-    process.env.APP_VERSION = '2026-08-24.1';
+    process.env.APP_VERSION = '2026.08.24.1';
     const app = createApp();
     const cookie = `session=${signSession('allowed@example.com')}`;
 
     const response = await request(app).get('/').set('Cookie', cookie);
 
-    expect(response.text).toContain('id="app-version" class="app-version">2026-08-24.1<');
+    expect(response.text).toContain('id="app-version" class="app-version">2026.08.24.1<');
   });
 
   it('falls back to dev when nothing was stamped in', async () => {

@@ -1,7 +1,7 @@
 # Changelog
 
 Versions are **generated at deploy time**, not carried in the sources: a merge
-into `production` is tagged `vYYYY-MM-DD.N`, where `N` counts that day's
+into `production` is tagged `vYYYY.MM.DD.N`, where `N` counts that day's
 releases. Nothing needs bumping and nothing can be forgotten.
 
 Each release's notes are assembled from the commits since the previous one,

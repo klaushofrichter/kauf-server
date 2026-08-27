@@ -10,12 +10,12 @@ describe('GET /health', () => {
   });
 
   it('returns 200 with a status ok body and the stamped version', async () => {
-    process.env.APP_VERSION = '2026-08-24.1';
+    process.env.APP_VERSION = '2026.08.24.1';
     const app = createApp();
     const response = await request(app).get('/health');
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ status: 'ok', version: '2026-08-24.1' });
+    expect(response.body).toEqual({ status: 'ok', version: '2026.08.24.1' });
   });
 
   it('falls back to dev when no version was stamped in', async () => {

@@ -118,15 +118,15 @@ can be re-derived from a fresh scan, and the PVC is backed up via Velero.
 ### Releases
 
 Merging into `production` cuts a release. The version is **generated at
-deploy time** as `YYYY-MM-DD.N` (e.g. `2026-08-24.1`), where `N` counts that
+deploy time** as `YYYY.MM.DD.N` (e.g. `2026.08.24.1`), where `N` counts that
 day's releases — there is no version in the sources to bump or forget. Dates
 are Central, so an evening deploy is not filed under tomorrow. The same
 value is what `GET /health` and the web UI header show; the git/image tags
-carry the conventional `v` prefix (`v2026-08-24.1`) but the displayed/API
+carry the conventional `v` prefix (`v2026.08.24.1`) but the displayed/API
 value does not.
 
 ```
-ghcr.io/klaushofrichter/kauf-server:v2026-08-24.1   the released build
+ghcr.io/klaushofrichter/kauf-server:v2026.08.24.1   the released build
 ghcr.io/klaushofrichter/kauf-server:latest          whatever production runs
 ghcr.io/klaushofrichter/kauf-server:main            newest main build, not deployed
 ghcr.io/klaushofrichter/kauf-server:<sha>           every build, by commit
