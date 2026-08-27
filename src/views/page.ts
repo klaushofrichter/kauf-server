@@ -57,7 +57,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
     .toolbar form { margin: 0; }
     #bulbs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
-    .bulb-card { border: 1px solid #eee; border-radius: 0.5rem; padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .bulb-card { background: #fafafa; border: 1px solid #eee; border-radius: 0.5rem; padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; cursor: pointer; }
     .bulb-icon { width: 48px; height: 48px; fill: var(--bulb-color, #999); transition: fill 0.2s; }
     .bulb-card.offline .bulb-icon { fill: #ccc; }
     .bulb-name { font-weight: 600; text-align: center; }
