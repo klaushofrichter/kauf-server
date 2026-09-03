@@ -72,7 +72,9 @@ Public web UI: https://bulbs.skylar.technology
   shows a progress meter — "Scanning 192.168.1.0/24 — 120 of 254 addresses" —
   while it runs. It shares the one-per-minute discovery budget with
   `POST /discover`; when throttled it redirects back to `/` with an
-  explanation rather than a raw 429. Without JavaScript the form still posts
+  explanation rather than a raw 429. That notice carries the seconds
+  remaining, counts down, dismisses itself when the limit clears, and strips
+  its own query parameter so a reload cannot resurrect a stale warning. Without JavaScript the form still posts
   and blocks as before, just without the meter.
 - `GET /ui/discover/progress` — session-authenticated JSON
   `{running, scanned, total, cidr}` for the meter above. Polled a few times a

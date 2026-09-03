@@ -89,8 +89,12 @@ export function createUiDiscoverRateLimit(): RateLimitRequestHandler {
     standardHeaders: true,
     legacyHeaders: false,
     keyGenerator: rateLimitKey,
-    handler: (_req, res) => {
-      res.redirect(302, '/?scan=throttled');
+    handler: (req, res) => {
+      // Carry the actual remaining time, so the page can say how long rather
+      // than "a moment", and can stop showing the warning once it expires.
+      const reset = (req as Request & { rateLimit?: { resetTime?: Date } }).rateLimit?.resetTime;
+      const seconds = reset ? Math.max(1, Math.ceil((reset.getTime() - Date.now()) / 1000)) : 60;
+      res.redirect(302, `/?scan=throttled&retry=${seconds}`);
     },
   });
 }

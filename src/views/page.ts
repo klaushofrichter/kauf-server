@@ -42,7 +42,10 @@ function renderBulbList(bulbs: BulbWithState[]): string {
 export function renderPage(
   email: string,
   bulbs: BulbWithState[],
-  notice?: string
+  notice?: string,
+  // Seconds until the discovery limit clears. Drives a countdown and the
+  // self-dismissal below; absent for any other notice.
+  retryAfter?: number
 ): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -116,7 +119,9 @@ export function renderPage(
     <form method="POST" action="/ui/bulbs/on" data-busy="Turning all bulbs on&hellip;"><button type="submit">All On</button></form>
     <form method="POST" action="/ui/bulbs/off" data-busy="Turning all bulbs off&hellip;"><button type="submit">All Off</button></form>
   </div>
-  <div id="busy-panel" role="status" aria-live="polite"${notice ? '' : ' hidden'}>
+  <div id="busy-panel" role="status" aria-live="polite"${notice ? '' : ' hidden'}${
+    retryAfter ? ` data-retry-after="${retryAfter}"` : ''
+  }>
     <span id="busy-text">${notice ? escapeHtml(notice) : ''}</span>
     <progress id="scan-progress" hidden></progress>
   </div>
@@ -391,6 +396,44 @@ export function renderPage(
     // Bound on submit rather than click, so it covers keyboard submission
     // too, and so a browser without JS still posts the form normally - these
     // are plain form POSTs and must keep working unaided.
+    // The throttle notice arrives as a server-rendered message plus the
+    // seconds remaining. Two things have to happen to it, and neither is
+    // automatic:
+    //
+    //   1. Strip ?scan=throttled from the address bar. Without this a reload
+    //      re-renders the warning from the URL long after the limit cleared,
+    //      so the page would keep claiming a scan just ran - it outlives the
+    //      condition it describes.
+    //   2. Count down and then dismiss it, so it stops being true-looking
+    //      once refreshing is allowed again.
+    (function () {
+      var panel = document.getElementById('busy-panel');
+      var text = document.getElementById('busy-text');
+      if (!panel || panel.hidden) return;
+
+      if (window.history && window.history.replaceState && window.location.search) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+
+      var remaining = parseInt(panel.getAttribute('data-retry-after') || '', 10);
+      if (!remaining || remaining < 1) return;
+
+      var tick = setInterval(function () {
+        remaining -= 1;
+        if (remaining > 0) {
+          if (text) {
+            text.textContent =
+              'A network scan was run less than a minute ago. You can refresh again in ' +
+              remaining + (remaining === 1 ? ' second.' : ' seconds.');
+          }
+          return;
+        }
+        clearInterval(tick);
+        panel.hidden = true;
+        if (text) text.textContent = '';
+      }, 1000);
+    })();
+
     function setBusy(message) {
       var panel = document.getElementById('busy-panel');
       var text = document.getElementById('busy-text');

@@ -56,11 +56,23 @@ indexRouter.get(
     // Set by the discovery limiter's redirect, so a throttled Refresh
     // explains itself rather than appearing to do nothing - the same
     // failure mode the busy panel was added to fix.
-    const notice =
-      req.query.scan === 'throttled'
-        ? 'A network scan was run less than a minute ago. Please wait a moment before refreshing again.'
-        : undefined;
-    res.status(200).type('html').send(renderPage(session?.email ?? '', bulbs, notice));
+    // Set by the discovery limiter's redirect, so a throttled Refresh
+    // explains itself rather than appearing to do nothing.
+    const throttled = req.query.scan === 'throttled';
+    const retryRaw = Number(req.query.retry);
+    // Clamped: this arrives in the URL and a user can edit it, and it drives
+    // a countdown rather than any decision the server makes.
+    const retryAfter =
+      throttled && Number.isFinite(retryRaw) ? Math.min(300, Math.max(1, Math.floor(retryRaw))) : undefined;
+    const notice = throttled
+      ? retryAfter
+        ? `A network scan was run less than a minute ago. You can refresh again in ${retryAfter} seconds.`
+        : 'A network scan was run less than a minute ago. Please wait a moment before refreshing again.'
+      : undefined;
+    res
+      .status(200)
+      .type('html')
+      .send(renderPage(session?.email ?? '', bulbs, notice, retryAfter));
   })
 );
 

@@ -73,8 +73,13 @@ describe('the web UI Refresh shares that budget', () => {
     const second = await request(app).post('/ui/discover').set('Cookie', cookie);
     expect(second.status).toBe(302);
     // A browser navigation, so answering with a JSON body would replace the
-    // page with raw text. It goes back to the page with a flag instead.
-    expect(second.headers.location).toBe('/?scan=throttled');
+    // page with raw text. It goes back to the page with a flag instead, and
+    // carries the seconds remaining so the page can say how long and stop
+    // showing the warning once it expires.
+    expect(second.headers.location).toMatch(/^\/\?scan=throttled&retry=\d+$/);
+    const seconds = Number(new URL(second.headers.location, 'http://x').searchParams.get('retry'));
+    expect(seconds).toBeGreaterThan(0);
+    expect(seconds).toBeLessThanOrEqual(60);
   });
 
   it('shows the throttle notice on the page when redirected back', async () => {
@@ -82,11 +87,37 @@ describe('the web UI Refresh shares that budget', () => {
     const app = createApp();
     const cookie = `session=${signSession('allowed@example.com')}`;
 
-    const response = await request(app).get('/?scan=throttled').set('Cookie', cookie);
+    const response = await request(app).get('/?scan=throttled&retry=42').set('Cookie', cookie);
 
     expect(response.status).toBe(200);
-    expect(response.text).toContain('A network scan was run less than a minute ago');
+    expect(response.text).toContain('You can refresh again in 42 seconds');
+    expect(response.text).toContain('data-retry-after="42"');
     expect(response.text).not.toContain('aria-live="polite" hidden');
+  });
+
+  it('clamps a hand-edited retry value rather than rendering it', async () => {
+    vi.mocked(listWithLiveState).mockResolvedValue([]);
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    // It arrives in the URL, so it is user input; it only drives a countdown,
+    // but it should not be able to park a warning on the page for an hour.
+    const response = await request(app).get('/?scan=throttled&retry=99999').set('Cookie', cookie);
+
+    expect(response.text).toContain('data-retry-after="300"');
+  });
+
+  it('ignores a non-numeric retry value and falls back to the vague wording', async () => {
+    vi.mocked(listWithLiveState).mockResolvedValue([]);
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/?scan=throttled&retry=abc').set('Cookie', cookie);
+
+    expect(response.text).toContain('Please wait a moment');
+    // The attribute form specifically - the string also appears in the
+    // inline script that reads it.
+    expect(response.text).not.toContain('data-retry-after="');
   });
 });
 
