@@ -1,6 +1,8 @@
 import { BulbWithState } from '../bulbs/service';
 import { appVersion } from '../version';
 
+const REPO_URL = 'https://github.com/klaushofrichter/kauf-server';
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -67,7 +69,8 @@ export function renderPage(
     .title-icon { height: 1.6em; width: auto; margin-left: -0.15em; }
     a.logout { color: #666; text-decoration: none; font-size: 0.9rem; }
     a.logout:hover { text-decoration: underline; }
-    .app-version { color: #999; font-size: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .app-version { color: #999; font-size: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
+    .app-version:hover { text-decoration: underline; }
     #bulbs-empty { color: #888; font-style: italic; }
     .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
     .toolbar form { margin: 0; }
@@ -109,7 +112,8 @@ export function renderPage(
   <header>
     <h1><img src="/favicon.png" alt="" class="title-icon">Kauf Bulbs</h1>
     <div>
-      <span id="app-version" class="app-version">${escapeHtml(appVersion())}</span> &middot;
+      <a id="app-version" class="app-version" href="${REPO_URL}" target="_blank" rel="noopener noreferrer"
+         title="kauf-server on GitHub">${escapeHtml(appVersion())}</a> &middot;
       <span>${escapeHtml(email)}</span> &middot;
       <a class="logout" href="/auth/logout">Sign out</a>
     </div>

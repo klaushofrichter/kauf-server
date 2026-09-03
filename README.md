@@ -65,7 +65,8 @@ Public web UI: https://bulbs.skylar.technology
   call here. The automatic sweep still runs on its own interval regardless.
 - `GET /` — web UI, requires signing in with Google (restricted to emails in
   `ALLOWED_EMAILS`). The header shows the running build's version (see
-  Releases below) to the left of the signed-in email.
+  Releases below) to the left of the signed-in email, linked to this
+  repository and opening in a new tab.
 - `POST /ui/discover` (web UI "Refresh") — runs a discovery sweep, then
   redirects to `/`, which re-reads every bulb's live state. The sweep is
   blocking and takes several seconds, so the toolbar disables its buttons and
