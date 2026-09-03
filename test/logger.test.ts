@@ -200,3 +200,4 @@ describe('no client address is logged', () => {
     expect(raw[0]).not.toContain('10.42.');
   });
 });
+

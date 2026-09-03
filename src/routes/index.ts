@@ -18,6 +18,15 @@ import {
 import { runDiscoveryScan } from '../bulbs/discovery';
 import { parseSetOptions } from '../bulbs/validation';
 
+// Express 5 types route params as `string | string[]`, because a path
+// pattern can bind the same name more than once. Every `:id` here binds
+// exactly one segment, so the value is always a string at runtime - this
+// narrows it in one place rather than casting at each call site.
+function bulbId(req: Request): string {
+  const id = req.params.id;
+  return Array.isArray(id) ? id[0] : id;
+}
+
 export const indexRouter = Router();
 
 // Applies to every route below, but only bites on state-changing methods.
@@ -49,7 +58,7 @@ indexRouter.get(
   createAuthRateLimit(),
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    const bulb = await getFullDetail(req.params.id);
+    const bulb = await getFullDetail(bulbId(req));
     if (!bulb) {
       res.status(404).json({ error: 'not found' });
       return;
@@ -63,9 +72,9 @@ indexRouter.post(
   createAuthRateLimit(),
   requireAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    const current = await getWithLiveState(req.params.id);
+    const current = await getWithLiveState(bulbId(req));
     if (current) {
-      await setBulbState(req.params.id, { on: !current.on });
+      await setBulbState(bulbId(req), { on: !current.on });
     }
     res.redirect(302, '/');
   })
@@ -82,7 +91,7 @@ indexRouter.post(
       return;
     }
 
-    const result = await setBulbState(req.params.id, parsed.options!);
+    const result = await setBulbState(bulbId(req), parsed.options!);
 
     if (result.notFound) {
       res.status(404).json({ error: 'not found' });
@@ -97,7 +106,7 @@ indexRouter.post(
       return;
     }
 
-    const detail = await getFullDetail(req.params.id);
+    const detail = await getFullDetail(bulbId(req));
     res.status(200).json(detail);
   })
 );
@@ -113,14 +122,14 @@ indexRouter.post(
       return;
     }
 
-    const result = await renameBulbAndGetState(req.params.id, name);
+    const result = await renameBulbAndGetState(bulbId(req), name);
 
     if (result.notFound) {
       res.status(404).json({ error: 'not found' });
       return;
     }
 
-    const detail = await getFullDetail(req.params.id);
+    const detail = await getFullDetail(bulbId(req));
     res.status(200).json(detail);
   })
 );

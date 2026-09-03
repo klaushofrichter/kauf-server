@@ -32,9 +32,25 @@ export function createApp(): Express {
   });
 
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+    // Client errors must not be reported as server errors. express.json()
+    // throws a SyntaxError carrying status 400 for a malformed body, and
+    // this handler previously answered 500 for it and logged at error -
+    // so routine bad input looked like the service falling over, in the
+    // response and in the new error-level log lines alike.
+    const status = (err as { status?: number; statusCode?: number })?.status
+      ?? (err as { statusCode?: number })?.statusCode;
+    const isClientError = typeof status === 'number' && status >= 400 && status < 500;
+    const reqId = (req as Request & { id?: string }).id;
+
+    if (isClientError) {
+      logger.warn({ err, reqId }, 'client_error');
+      res.status(status).json({ error: 'invalid request' });
+      return;
+    }
+
     // Through the same logger so failures land in the same stream as the
     // request lines, correlated by reqId.
-    logger.error({ err, reqId: (req as Request & { id?: string }).id }, 'unhandled_error');
+    logger.error({ err, reqId }, 'unhandled_error');
     res.status(500).json({ error: 'internal server error' });
   });
 
