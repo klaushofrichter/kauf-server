@@ -56,6 +56,45 @@ export function rateLimitKey(req: Request): string {
   return `ip:${ipKeyGenerator(req.ip ?? '')}`;
 }
 
+// Discovery sweeps the whole configured CIDR and probes every address, so a
+// single call costs seconds of wall time and a burst of LAN traffic - far
+// more than any other endpoint here. The general 30-per-15-minutes budget
+// would allow 30 concurrent-ish sweeps in a quarter hour, which is both a
+// self-inflicted DoS on the network and a way to keep the service busy.
+//
+// One per minute per principal. The automatic in-process sweep runs every
+// 20 minutes regardless, so this endpoint is for "I just plugged a bulb in"
+// - a minute is no real constraint on that, and it bounds the cost hard.
+export function createDiscoverRateLimit(): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60 * 1000,
+    limit: 1,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKey,
+    // JSON, to match every other error this API returns rather than
+    // express-rate-limit's plain-text default.
+    message: { error: 'rate limited' },
+  });
+}
+
+// Same budget as the API's discovery limit, but the web UI is a browser
+// navigation, not a fetch - answering it with a JSON 429 body would replace
+// the page with raw text. Redirects back to the page with a flag instead, so
+// the user gets told why nothing happened.
+export function createUiDiscoverRateLimit(): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60 * 1000,
+    limit: 1,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKey,
+    handler: (_req, res) => {
+      res.redirect(302, '/?scan=throttled');
+    },
+  });
+}
+
 export function createAuthRateLimit(): RateLimitRequestHandler {
   return rateLimit({
     windowMs: 15 * 60 * 1000,

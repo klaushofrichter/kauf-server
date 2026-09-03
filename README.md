@@ -58,14 +58,20 @@ Public web UI: https://bulbs.skylar.technology
 - `POST /discover` — protected the same way. Runs a discovery scan
   synchronously (blocking; a full subnet sweep can take several seconds)
   rather than waiting for the automatic interval. No body. Returns
-  `{"bulbsFound": <number>, "bulbs": [...]}` (same shape as `GET /bulbs`).
+  `{"bulbsFound": <number>, "bulbs": [...]}` (same shape as `GET /bulbs`),
+  or 429 `{"error":"rate limited"}`. **This endpoint has its own, much
+  stricter limit: one call per minute per caller**, because a sweep probes
+  every address in the configured CIDR and costs far more than any other
+  call here. The automatic sweep still runs on its own interval regardless.
 - `GET /` — web UI, requires signing in with Google (restricted to emails in
   `ALLOWED_EMAILS`). The header shows the running build's version (see
   Releases below) to the left of the signed-in email.
 - `POST /ui/discover` (web UI "Refresh") — runs a discovery sweep, then
   redirects to `/`, which re-reads every bulb's live state. The sweep is
   blocking and takes several seconds, so the toolbar disables its buttons and
-  shows a "Scanning the network for bulbs…" panel while it runs.
+  shows a "Scanning the network for bulbs…" panel while it runs. It shares
+  the one-per-minute discovery budget with `POST /discover`; when throttled
+  it redirects back to `/` with an explanation rather than a raw 429.
 - `POST /ui/bulb/:id/toggle` — web UI action that toggles a bulb on/off;
   requires the same session auth as `GET /`, then redirects back to `/`.
 - `POST /ui/bulb/:id/name` — web UI action used by the modal's nickname

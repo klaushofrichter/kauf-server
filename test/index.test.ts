@@ -526,3 +526,4 @@ describe('error handling', () => {
     expect(response.status).not.toBe(500);
   });
 });
+
