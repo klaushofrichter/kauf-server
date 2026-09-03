@@ -42,9 +42,23 @@ jobs:
         with:
           context: .
           push: true
-          # latest is published by the production deploy, not here, so that
-          # pulling it gives what is actually deployed rather than an
-          # untested main build.
+          # This job publishes ONLY the moving `main` tag.
+          #
+          # It used to also push :<sha>, which the cluster manifest pins -
+          # and because main and production carry the same commit after a
+          # promotion, this job would rebuild that commit and re-push the
+          # same :<sha> seconds after the release job had published it. The
+          # released artifact was replaced in the registry underneath a
+          # running service, without APP_VERSION, so /health reported "dev".
+          #
+          # Nothing errors when that happens, which is what makes it bad: the
+          # service keeps serving the old image until something restarts the
+          # pod - a reboot, an eviction, an OOM kill - and then it quietly
+          # comes back as the main build while the release notes still claim
+          # the released build answered correctly.
+          #
+          # :<sha>, :v<version> and :latest are now written only by
+          # deploy-production.yml, so the tag the cluster pins is immutable
+          # in practice.
           tags: |
             ghcr.io/klaushofrichter/kauf-server:main
-            ghcr.io/klaushofrichter/kauf-server:${{ github.sha }}
