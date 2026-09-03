@@ -39,7 +39,11 @@ function renderBulbList(bulbs: BulbWithState[]): string {
   return `<div id="bulbs-grid">${cards}</div>`;
 }
 
-export function renderPage(email: string, bulbs: BulbWithState[]): string {
+export function renderPage(
+  email: string,
+  bulbs: BulbWithState[],
+  notice?: string
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -102,7 +106,7 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     <form method="POST" action="/ui/bulbs/on" data-busy="Turning all bulbs on&hellip;"><button type="submit">All On</button></form>
     <form method="POST" action="/ui/bulbs/off" data-busy="Turning all bulbs off&hellip;"><button type="submit">All Off</button></form>
   </div>
-  <p id="busy-panel" role="status" aria-live="polite" hidden></p>
+  <p id="busy-panel" role="status" aria-live="polite"${notice ? '' : ' hidden'}>${notice ? escapeHtml(notice) : ''}</p>
   ${renderBulbList(bulbs)}
 
   <dialog id="bulb-modal">

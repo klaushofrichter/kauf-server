@@ -2,7 +2,7 @@
 import { Router, Request, Response } from 'express';
 import { requireToken } from '../middleware/requireToken';
 import { asyncHandler } from '../middleware/asyncHandler';
-import { createAuthRateLimit } from '../middleware/authRateLimit';
+import { createAuthRateLimit, createDiscoverRateLimit } from '../middleware/authRateLimit';
 import {
   listWithLiveState,
   getFullDetail,
@@ -145,6 +145,11 @@ bulbsRouter.post(
   '/discover',
   createAuthRateLimit(),
   requireBulbsToken,
+  // Stricter than the shared budget above: one sweep per minute. Placed
+  // after the token check deliberately, so a caller with no valid token
+  // cannot burn the scarce discovery budget of one who has it - rejected
+  // requests never reach this limiter and so never count against it.
+  createDiscoverRateLimit(),
   asyncHandler(async (_req: Request, res: Response) => {
     const bulbsFound = await runDiscoveryScan();
     const bulbs = await listWithLiveState();

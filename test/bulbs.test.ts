@@ -340,3 +340,4 @@ describe('GET /bulbs rate limiting', () => {
     expect(lastStatus).toBe(429);
   });
 });
+

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { renderPage } from '../views/page';
 import { requireAuth } from '../middleware/requireAuth';
-import { createAuthRateLimit } from '../middleware/authRateLimit';
+import { createAuthRateLimit, createUiDiscoverRateLimit } from '../middleware/authRateLimit';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { verifySession } from '../session';
@@ -49,7 +49,14 @@ indexRouter.get(
   asyncHandler(async (req: Request, res: Response) => {
     const session = verifySession(req.cookies?.session);
     const bulbs = await listWithLiveState();
-    res.status(200).type('html').send(renderPage(session?.email ?? '', bulbs));
+    // Set by the discovery limiter's redirect, so a throttled Refresh
+    // explains itself rather than appearing to do nothing - the same
+    // failure mode the busy panel was added to fix.
+    const notice =
+      req.query.scan === 'throttled'
+        ? 'A network scan was run less than a minute ago. Please wait a moment before refreshing again.'
+        : undefined;
+    res.status(200).type('html').send(renderPage(session?.email ?? '', bulbs, notice));
   })
 );
 
@@ -158,6 +165,10 @@ indexRouter.post(
   '/ui/discover',
   createAuthRateLimit(),
   requireAuth,
+  // The UI's Refresh runs the same expensive sweep as POST /discover, so it
+  // carries the same one-per-minute budget. Without it the strict API limit
+  // would be trivially sidestepped by anyone holding a session.
+  createUiDiscoverRateLimit(),
   asyncHandler(async (_req: Request, res: Response) => {
     await runDiscoveryScan();
     res.redirect(302, '/');

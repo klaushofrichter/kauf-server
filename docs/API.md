@@ -10,8 +10,10 @@ where `<token>` is one of this deployment's `BULBS_API_TOKENS` values
 (comma-separated list — any one value works). Missing or invalid token
 returns `401 {"error": "unauthorized"}`.
 
-All endpoints are rate-limited to 30 requests per 15 minutes per client.
-Exceeding it returns `429`.
+All endpoints are rate-limited to 30 requests per 15 minutes, counted per
+caller: each API token has its own budget, so one integration cannot spend
+another's. Exceeding it returns `429`. `POST /discover` has an additional,
+much stricter limit of its own — see that endpoint.
 
 Separately, `POST /bulb` is also subject to a per-device limit: calls to a
 given bulb's own set-state HTTP endpoint are capped at 3 per second,
@@ -133,6 +135,12 @@ Never fails the whole request for one bulb's failure — check each entry's `suc
 Run a discovery scan immediately, rather than waiting for the automatic
 20-minute interval, and return the updated list once it completes. This is
 a **blocking** call — a full subnet sweep can take several seconds. No body.
+
+Rate-limited separately and far more strictly than everything else: **one
+call per minute per caller**, because each sweep probes every address in the
+configured CIDR. Exceeding it returns `429 {"error": "rate limited"}` without
+running a scan. Discovery also runs automatically on its own interval, so
+this endpoint is for picking up a newly plugged-in bulb immediately.
 
 **Response `200`:**
 ```json
