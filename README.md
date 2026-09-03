@@ -86,6 +86,41 @@ than sending a request per slider tick, for exactly this reason.
 
 See `docs/API.md` for full request/response examples of every endpoint.
 
+## Logging
+
+Every API call is logged as one line of structured JSON on stdout, via
+`pino`/`pino-http` (`src/logger.ts`):
+
+```json
+{"level":30,"time":1788438393450,"durationMs":10,"kind":"api_request",
+ "reqId":"c0e98556-...","method":"GET","path":"/bulbs","status":200,
+ "ip":"203.0.113.7","msg":"api_request"}
+```
+
+- `kind: "api_request"` is a stable discriminator, so a log query can select
+  API lines without matching on message text.
+- Levels: `/health` is `debug` (so continuous Knative probes stay off the
+  default stream), 401/403/429 are `warn` — those are the rejections that
+  used to fail silently — 5xx is `error`, everything else `info`.
+- `reqId` honours an inbound `x-request-id`, otherwise a UUID.
+- **No credentials are logged.** The `req`/`res` objects are dropped
+  entirely, so no headers are serialised: the Bearer token, session cookie
+  and any freshly minted `set-cookie` appear nowhere in the output, asserted
+  by `test/logger.test.ts`. Query strings are stripped from `path` for the
+  same reason.
+- No authenticated email is logged: it is personal data leaving the cluster,
+  and on a single-user service it carries no analytical value.
+
+Nothing is written to a file. In a container the platform owns the log file —
+the kubelet captures stdout and rotates it (k3s defaults to 10Mi × 5 per
+container), so a file transport here would fight that rotation and could fill
+the container layer or the `bulbs-data` PVC. Set `LOG_LEVEL` to change
+verbosity (`silent` in tests; default `info`).
+
+Shipping these to Grafana Cloud is a cluster-side concern, configured in the
+separate `kube-setup` repo on the Alloy collector that already runs there —
+not something this service does.
+
 ## Development
 
 ```bash
@@ -114,6 +149,7 @@ npm start                # runs the compiled dist/server.js
 | `BULBS_DATA_PATH`       | Path to the persisted bulb directory JSON file (default `/data/bulbs.json`) |
 | `BULB_SCAN_CIDR`        | CIDR of the LAN to sweep for Kauf bulbs during discovery         |
 | `BULB_SCAN_INTERVAL_MS` | How often the in-process discovery sweep runs, in milliseconds   |
+| `LOG_LEVEL`             | pino log level (default `info`; `silent` in tests). See Logging  |
 
 ## Deployment
 

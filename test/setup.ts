@@ -4,3 +4,7 @@ process.env.GOOGLE_REDIRECT_URI = 'http://localhost:8080/auth/google/callback';
 process.env.COOKIE_SECRET = 'test-cookie-secret-value';
 process.env.ALLOWED_EMAILS = 'allowed@example.com';
 process.env.BULBS_API_TOKENS = 'test-bulbs-token';
+
+// Silence request logging in tests; test/logger.test.ts sets its own level
+// and stream to assert on output.
+process.env.LOG_LEVEL = 'silent';
