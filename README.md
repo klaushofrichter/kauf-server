@@ -1,5 +1,23 @@
 # kauf-server
 
+[![Release](https://img.shields.io/github/v/release/klaushofrichter/kauf-server?label=release&color=blue)](https://github.com/klaushofrichter/kauf-server/releases)
+[![PR checks](https://github.com/klaushofrichter/kauf-server/actions/workflows/production-checks.yml/badge.svg)](https://github.com/klaushofrichter/kauf-server/actions/workflows/production-checks.yml)
+[![Build and publish image](https://github.com/klaushofrichter/kauf-server/actions/workflows/build-push.yml/badge.svg)](https://github.com/klaushofrichter/kauf-server/actions/workflows/build-push.yml)
+[![Deploy production](https://github.com/klaushofrichter/kauf-server/actions/workflows/deploy-production.yml/badge.svg)](https://github.com/klaushofrichter/kauf-server/actions/workflows/deploy-production.yml)
+[![Dependabot](https://img.shields.io/badge/dependabot-enabled-025E8C?logo=dependabot&logoColor=white)](https://github.com/klaushofrichter/kauf-server/security/dependabot)
+
+<!-- The release badge tracks the newest tag, which a successful production
+     deploy cuts (see "Releases"). It is the last *released* version, not
+     necessarily the running one: a deploy that rolls out and then fails its
+     smoke test leaves production ahead of the tag. GET /health is what
+     reports the running version.
+
+     The three workflow badges are live status. The Dependabot one is static -
+     GitHub publishes no endpoint for alert status on a repo, so it asserts
+     that alerts, security updates, and .github/dependabot.yml are all in place
+     rather than checking them. If Dependabot is ever turned off, this badge
+     will not notice. -->
+
 Container that discovers and controls Kauf smart bulbs on the local network,
 exposing a web UI and an API. Runs on a local Kubernetes (k3s) cluster.
 

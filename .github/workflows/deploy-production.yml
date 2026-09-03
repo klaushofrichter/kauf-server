@@ -109,10 +109,69 @@ jobs:
           kubectl wait --for=condition=Ready ksvc/bulbs -n bulbs --timeout=120s
           kubectl get ksvc bulbs -n bulbs
 
+      - name: Smoke-test the public endpoints
+        id: smoke
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          BASE=https://bulbs.skylar.technology
+          # The deployed build must be the one this run just stamped, so the
+          # version is checked inside the retry loop rather than once after it:
+          # ingress can still answer from the previous revision for a moment
+          # after the ksvc reports Ready, and that is a race to wait out, not a
+          # deploy failure.
+          code=""; served=""; ok=""
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /tmp/health.json -w "%{http_code}" "$BASE/health" || true)
+            if [ "$code" = "200" ]; then
+              # grep -o, not a greedy sed: this pins to the "version" key itself
+              # rather than to the last thing in the payload that looks like one.
+              # `|| true`: pipefail would otherwise turn a version-less body
+              # (or head closing the pipe) into a hard failure instead of a retry.
+              served=$(grep -o '"version":"[^"]*"' /tmp/health.json | head -1 | cut -d'"' -f4 || true)
+              if [ "$served" = "$VERSION" ]; then
+                ok=1; echo "health ok, serving ${served}"; break
+              fi
+              echo "still serving ${served:-unknown}, waiting for ${VERSION} (retry ${i}/10)"
+            else
+              echo "health not ready (HTTP ${code}), retry ${i}/10"
+            fi
+            sleep 6
+          done
+          [ -n "$ok" ] || {
+            echo "::error::/health never reported ${VERSION} (last: HTTP ${code:-none}, version ${served:-none})"
+            exit 1
+          }
+          # Unlike a public site, GET / here is behind Google OAuth, so 302 to
+          # the sign-in flow is the correct healthy answer and the only one we
+          # accept. That makes this an auth-enforcement check as much as a
+          # liveness one: a 200 would mean the UI had become world-readable.
+          page=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/")
+          [ "$page" = "302" ] || {
+            echo "::error::public page returned ${page}, expected 302 to Google sign-in"
+            exit 1
+          }
+          echo "public page ok (${page} -> sign-in redirect, auth still enforced)"
+          # Recorded for the release notes below. The value of writing this into
+          # the release is that it is evidence tied to a moment: this build
+          # answered on the public URL at this timestamp. Reading it later beats
+          # trusting that a green tick somewhere once meant something.
+          {
+            echo "served_version=$served"
+            echo "page_code=$page"
+            echo "base=$BASE"
+            echo "checked_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Tag the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.ver.outputs.version }}
+          SERVED: ${{ steps.smoke.outputs.served_version }}
+          PAGE_CODE: ${{ steps.smoke.outputs.page_code }}
+          BASE: ${{ steps.smoke.outputs.base }}
+          CHECKED_AT: ${{ steps.smoke.outputs.checked_at }}
         run: |
           set -euo pipefail
           TAG="v${VERSION}"
@@ -143,6 +202,17 @@ jobs:
           else
             git log --no-merges --pretty='- %s' -20 >> /tmp/notes.md
           fi
+          # Only what this deploy itself observed - no suite counts pulled from
+          # another workflow's run, which would be evidence about a different
+          # set of bits at a different time.
+          printf '\n### Verified at release\n\n' >> /tmp/notes.md
+          printf -- '- Rollout: `ksvc/bulbs` reached Ready\n' >> /tmp/notes.md
+          printf -- '- `GET %s/health` -> 200, reported version `%s`, matching the build this run stamped\n' \
+            "$BASE" "$SERVED" >> /tmp/notes.md
+          printf -- '- `GET %s/` -> %s to Google sign-in, so the UI is serving and still auth-gated\n' \
+            "$BASE" "$PAGE_CODE" >> /tmp/notes.md
+          printf -- '- Checked at %s by [run %s](%s/%s/actions/runs/%s)\n' \
+            "$CHECKED_AT" "$GITHUB_RUN_ID" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> /tmp/notes.md
           printf '\nImage: `ghcr.io/klaushofrichter/kauf-server:%s`\n' "$TAG" >> /tmp/notes.md
           gh release create "$TAG" \
             --repo "$GITHUB_REPOSITORY" \

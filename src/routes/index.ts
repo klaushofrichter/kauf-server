@@ -5,6 +5,7 @@ import { renderPage } from '../views/page';
 import { requireAuth } from '../middleware/requireAuth';
 import { createAuthRateLimit } from '../middleware/authRateLimit';
 import { asyncHandler } from '../middleware/asyncHandler';
+import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { verifySession } from '../session';
 import {
   listWithLiveState,
@@ -18,6 +19,12 @@ import { runDiscoveryScan } from '../bulbs/discovery';
 import { parseSetOptions } from '../bulbs/validation';
 
 export const indexRouter = Router();
+
+// Applies to every route below, but only bites on state-changing methods.
+// These routes are authorised by the session cookie alone, so they are the
+// CSRF-reachable surface; the Bearer-token API in routes/bulbs.ts is not,
+// since a cross-origin page cannot set an Authorization header.
+indexRouter.use(requireSameOrigin);
 
 const FAVICON_PATH = path.join(__dirname, '../../public/favicon.png');
 const FAVICON = fs.readFileSync(FAVICON_PATH);
