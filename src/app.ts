@@ -20,7 +20,7 @@ export function createApp(): Express {
   // CSRF-token middleware, so it cannot see either control. Suppressed here at
   // the single reported location rather than disabled repo-wide, so a genuinely
   // unprotected handler added later still trips it.
-  app.use(cookieParser());
+  app.use(cookieParser()); // codeql[js/missing-token-validation]
   app.use(express.json());
   app.use(healthRouter);
   app.use(bulbsRouter);
