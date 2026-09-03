@@ -2,6 +2,7 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
 import { httpLogger, logger } from './logger';
+import { TRUST_PROXY } from './trustProxy';
 import { healthRouter } from './routes/health';
 import { bulbsRouter } from './routes/bulbs';
 import { authRouter } from './routes/auth';
@@ -9,10 +10,7 @@ import { indexRouter } from './routes/index';
 
 export function createApp(): Express {
   const app = express();
-  // Trust exactly one hop: the Knative/Kourier ingress proxy in front of the
-  // app. This makes req.ip resolve to the real client address (so
-  // express-rate-limit keys per-client instead of on the proxy's IP).
-  app.set('trust proxy', 1);
+  app.set('trust proxy', TRUST_PROXY);
   // First, so every request is logged including ones rejected by the
   // middleware below it - the 401/403/429 rejections are the whole point.
   app.use(httpLogger);
