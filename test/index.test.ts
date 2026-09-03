@@ -491,3 +491,24 @@ describe('POST /ui/discover', () => {
     expect(runDiscoveryScan).toHaveBeenCalled();
   });
 });
+
+describe('error handling', () => {
+  // express.json() throws a SyntaxError carrying status 400 for a malformed
+  // body. The handler answered 500 for it and logged at error level, so
+  // routine bad input looked like the service falling over - in the response
+  // and in the error-level log lines alike. Found while verifying the
+  // Express 5 upgrade, by sending accidentally-malformed JSON.
+  it('answers 400, not 500, when the JSON body is malformed', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app)
+      .post('/ui/bulb/kauf-bulb-7d49e0/set')
+      .set('Cookie', cookie)
+      .set('Content-Type', 'application/json')
+      .send('{"brightness": not valid json}');
+
+    expect(response.status).toBe(400);
+    expect(response.status).not.toBe(500);
+  });
+});
