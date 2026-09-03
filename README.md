@@ -75,16 +75,26 @@ Public web UI: https://bulbs.skylar.technology
 All of the above are also rate-limited, 30 requests per 15 minutes, to
 bound brute-force and runaway-client behaviour.
 
-That limit is currently **global rather than per client**, which is not what
-it looks like in the code. `express-rate-limit` keys on `req.ip`, but the
-k3s Traefik LoadBalancer Service runs `externalTrafficPolicy: Cluster`, so
-kube-proxy SNATs the source address before Traefik sees the packet and every
-request arrives carrying the same in-cluster address. All callers therefore
-share one bucket, and one noisy client can exhaust the budget for everybody
-including the signed-in user. No `trust proxy` setting can recover the
-address, because it never reaches the cluster; the fix is
-`externalTrafficPolicy: Local` on the Traefik Service, which lives in the
-separate `kube-setup` repo.
+The limit is applied **per principal**, not per address:
+
+- each API token gets its own budget, so one integration cannot spend
+  another's;
+- each signed-in user gets their own, wherever they connect from;
+- anything unauthenticated falls back to the client address, deliberately
+  sharing one bucket — that is the brute-force surface, and bounding it
+  collectively is the point. Because authenticated callers are keyed
+  separately, anonymous traffic can no longer exhaust the budget of a caller
+  that has already proved who it is.
+
+This used to be keyed on `req.ip` alone, and the README claimed "per client"
+while that was never true: the k3s Traefik Service ran
+`externalTrafficPolicy: Cluster`, so kube-proxy SNAT'd the source and every
+request arrived carrying the same in-cluster address — one global bucket for
+the whole world. That policy has since been changed cluster-side, so real
+addresses now arrive, but keying on the principal is what makes the guarantee
+hold regardless: requests originating inside the LAN all arrive as the
+router's address (NAT hairpinning), so an address alone still cannot separate
+one device on the network from another.
 
 Separately, calls to a physical bulb's own set-state HTTP endpoint are
 capped at 3 per second per device IP, regardless of which route triggered
