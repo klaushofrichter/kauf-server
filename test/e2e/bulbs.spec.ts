@@ -112,36 +112,53 @@ test('moving the brightness slider alone does not send any request', async ({ pa
   expect(setRequests).toBe(0);
 });
 
-test('the toolbar shows a wait panel and disables buttons while a sweep runs', async ({ page }) => {
+test('a sweep shows a progress meter and disables the toolbar', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('#busy-panel')).toBeHidden();
 
-  // Submit for real, but suppress only the navigation. Letting the browser
-  // navigate makes the busy state unobservable - Playwright serialises
-  // assertions against the pending navigation, so by the time it looks, the
-  // fresh page has already replaced the one being asserted on. This still
-  // exercises the shipped submit handler; a listener added here runs after
-  // the page's own, which has already done its work.
-  await page.evaluate(() => {
-    const form = document.querySelector('.toolbar form') as HTMLFormElement;
-    form.addEventListener('submit', (e) => e.preventDefault(), { once: true });
-    form.requestSubmit();
+  // Hold the scan open. Refresh is a fetch now rather than a form
+  // navigation, so intercepting it works cleanly - the earlier version of
+  // this test had to avoid navigating at all, because Playwright serialises
+  // assertions against a pending navigation.
+  let releaseScan: () => void = () => {};
+  const scanFinished = new Promise<void>((resolve) => {
+    releaseScan = resolve;
   });
+  await page.route('**/ui/discover', async (route) => {
+    await scanFinished;
+    await route.continue();
+  });
+
+  // Fixed progress, so the assertion is about what the meter renders rather
+  // than about how fast the mock server happens to answer.
+  await page.route('**/ui/discover/progress', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ running: true, scanned: 40, total: 254, cidr: '192.168.1.0/24' }),
+    });
+  });
+
+  await page.getByRole('button', { name: 'Refresh' }).click();
 
   const panel = page.locator('#busy-panel');
   await expect(panel).toBeVisible();
-  await expect(panel).toHaveText(/Scanning the network for bulbs/);
+
+  const bar = page.locator('#scan-progress');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveAttribute('max', '254');
+  await expect(bar).toHaveJSProperty('value', 40);
+  await expect(page.locator('#busy-text')).toHaveText(/40 of 254 addresses/);
 
   // Every action disabled, not just Refresh: a second sweep queued behind
   // the first is exactly what this prevents.
   await expect(page.getByRole('button', { name: 'Refresh' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'All On' })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'All Off' })).toBeDisabled();
-  // Card actions too, so a bulb toggle cannot race the sweep.
   await expect(page.locator('.bulb-toggle-form button').first()).toBeDisabled();
 
-  // And it is transient: a normal page load starts clean again.
-  await page.goto('/');
+  // Letting the scan finish reloads the page, which clears the busy state.
+  releaseScan();
   await expect(page.locator('#busy-panel')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Refresh' })).toBeEnabled();
 });

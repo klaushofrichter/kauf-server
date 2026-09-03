@@ -95,6 +95,21 @@ export function createUiDiscoverRateLimit(): RateLimitRequestHandler {
   });
 }
 
+// Progress polling runs a few times a second while a sweep is in flight, so
+// it cannot share the general 30-per-15-minutes budget - two refreshes would
+// exhaust it and the UI would start rate-limiting itself. It is a cheap
+// read of an in-memory counter, so a generous ceiling is fine; the point is
+// only to bound a runaway client.
+export function createProgressRateLimit(): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 600,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKey,
+  });
+}
+
 export function createAuthRateLimit(): RateLimitRequestHandler {
   return rateLimit({
     windowMs: 15 * 60 * 1000,

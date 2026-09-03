@@ -12,6 +12,7 @@ vi.mock('../src/bulbs/service', () => ({
 
 vi.mock('../src/bulbs/discovery', () => ({
   runDiscoveryScan: vi.fn(),
+  getScanProgress: vi.fn(() => ({ running: false, scanned: 0, total: 0, cidr: '' })),
 }));
 
 import { createApp } from '../src/app';
@@ -86,5 +87,30 @@ describe('the web UI Refresh shares that budget', () => {
     expect(response.status).toBe(200);
     expect(response.text).toContain('A network scan was run less than a minute ago');
     expect(response.text).not.toContain('aria-live="polite" hidden');
+  });
+});
+
+describe('GET /ui/discover/progress', () => {
+  it('reports progress without consuming the general request budget', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    // Polling runs several times a second during a sweep. On the general
+    // 30-per-15-minutes budget two refreshes would exhaust it and the UI
+    // would start rate-limiting itself, so this route has its own ceiling.
+    let last = 0;
+    for (let i = 0; i < 40; i++) {
+      const res = await request(app).get('/ui/discover/progress').set('Cookie', cookie);
+      last = res.status;
+    }
+
+    expect(last).toBe(200);
+  });
+
+  it('requires a session', async () => {
+    const response = await request(createApp()).get('/ui/discover/progress');
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toContain('accounts.google.com');
   });
 });
