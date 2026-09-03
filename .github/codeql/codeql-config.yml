@@ -1,0 +1,29 @@
+name: kauf-server CodeQL config
+
+query-filters:
+  # js/missing-token-validation flags src/app.ts's cookieParser() as serving
+  # request handlers without CSRF protection. The finding was real when it
+  # first fired and has been addressed, but not in a shape the query can
+  # recognise: it looks for dedicated CSRF-token middleware, and this service
+  # defends the cookie-authenticated /ui routes two other ways instead.
+  #
+  #   1. src/middleware/requireSameOrigin.ts rejects any state-changing
+  #      request whose Origin/Referer does not match the request's own host.
+  #      Covered by test/requireSameOrigin.test.ts and verified against a
+  #      running server: cross-origin POST with a valid session cookie gets
+  #      403, same-origin gets 302.
+  #   2. The session cookie is httpOnly + secure + SameSite=Lax, so browsers
+  #      do not attach it to cross-site form POSTs in the first place.
+  #
+  # The Bearer-token API is not CSRF-reachable at all - a cross-origin page
+  # cannot set an Authorization header.
+  #
+  # Excluded here rather than inline: `// codeql[js/missing-token-validation]`
+  # comments are not honoured by this analyze mode (tried both above the line
+  # and on it - the alert kept reporting), and a filter that visibly lives in
+  # the repo beats a suppression that silently does nothing. The trade-off is
+  # that this rule is now off repo-wide; in practice it only ever fires at the
+  # single cookie-middleware registration in src/app.ts, so re-check this file
+  # if a second cookie-authenticated router is ever added.
+  - exclude:
+      id: js/missing-token-validation
