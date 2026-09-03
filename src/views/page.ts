@@ -71,6 +71,8 @@ export function renderPage(
     .toolbar button[disabled], .bulb-toggle-form button[disabled] { opacity: 0.5; cursor: default; }
     #busy-panel { margin: -0.75rem 0 1.25rem; padding: 0.6rem 0.9rem; background: #eef4ff; border: 1px solid #cddcf5; border-radius: 0.35rem; color: #23406e; font-size: 0.9rem; }
     #busy-panel[hidden] { display: none; }
+    #busy-panel progress { display: block; width: 100%; margin-top: 0.5rem; height: 0.5rem; }
+    #busy-panel progress[hidden] { display: none; }
     #bulbs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
     .bulb-card { background: #fafafa; border: 1px solid #eee; border-radius: 0.5rem; padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; cursor: pointer; }
     .bulb-icon { width: 48px; height: 48px; fill: var(--bulb-color, #999); transition: fill 0.2s; }
@@ -114,7 +116,10 @@ export function renderPage(
     <form method="POST" action="/ui/bulbs/on" data-busy="Turning all bulbs on&hellip;"><button type="submit">All On</button></form>
     <form method="POST" action="/ui/bulbs/off" data-busy="Turning all bulbs off&hellip;"><button type="submit">All Off</button></form>
   </div>
-  <p id="busy-panel" role="status" aria-live="polite"${notice ? '' : ' hidden'}>${notice ? escapeHtml(notice) : ''}</p>
+  <div id="busy-panel" role="status" aria-live="polite"${notice ? '' : ' hidden'}>
+    <span id="busy-text">${notice ? escapeHtml(notice) : ''}</span>
+    <progress id="scan-progress" hidden></progress>
+  </div>
   ${renderBulbList(bulbs)}
 
   <dialog id="bulb-modal">
@@ -386,25 +391,89 @@ export function renderPage(
     // Bound on submit rather than click, so it covers keyboard submission
     // too, and so a browser without JS still posts the form normally - these
     // are plain form POSTs and must keep working unaided.
+    function setBusy(message) {
+      var panel = document.getElementById('busy-panel');
+      var text = document.getElementById('busy-text');
+      if (text) text.textContent = message;
+      if (panel) panel.hidden = false;
+      // Deferred a tick so the submitting button's own value still posts.
+      setTimeout(function () {
+        Array.prototype.forEach.call(
+          document.querySelectorAll('.toolbar button, .bulb-toggle-form button'),
+          function (button) { button.disabled = true; }
+        );
+      }, 0);
+    }
+
+    // The toolbar actions are blocking server-side operations - a discovery
+    // sweep of the whole subnet takes several seconds, and the bulk on/off
+    // calls every known bulb. Without this the UI sits looking identical and
+    // the click appears to have done nothing.
+    //
+    // Bound on submit rather than click, so keyboard submission is covered
+    // and so a browser without JS still posts the form normally - these are
+    // plain form POSTs and must keep working unaided.
     Array.prototype.forEach.call(document.querySelectorAll('.toolbar form'), function (form) {
-      form.addEventListener('submit', function () {
-        var panel = document.getElementById('busy-panel');
-        if (panel) {
-          panel.textContent = form.getAttribute('data-busy') || 'Working\u2026';
-          panel.hidden = false;
+      form.addEventListener('submit', function (event) {
+        var message = form.getAttribute('data-busy') || 'Working\u2026';
+
+        // Only the sweep has progress worth showing. The others stay a plain
+        // blocking navigation, which is the simpler path and behaves the same
+        // with or without JS.
+        if (form.getAttribute('action') !== '/ui/discover') {
+          setBusy(message);
+          return;
         }
-        // Disable every button on the page, not just this form's: while a
-        // sweep is in flight the others would queue up behind it, and a
-        // second discovery scan is exactly what you do not want to start.
-        // Deferred a tick so the button's own value still submits.
-        setTimeout(function () {
-          Array.prototype.forEach.call(
-            document.querySelectorAll('.toolbar button, .bulb-toggle-form button'),
-            function (button) { button.disabled = true; }
-          );
-        }, 0);
+
+        // Take over the navigation so the page stays alive to render the
+        // meter. Without this the browser discards the document the moment
+        // it posts, and there is nothing left to draw progress on.
+        event.preventDefault();
+        setBusy(message);
+
+        var bar = document.getElementById('scan-progress');
+        var text = document.getElementById('busy-text');
+        var polling = true;
+
+        function poll() {
+          if (!polling) return;
+          fetch('/ui/discover/progress', { headers: { Accept: 'application/json' } })
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (p) {
+              if (!polling || !p || !p.total) return;
+              if (bar) {
+                bar.max = p.total;
+                bar.value = p.scanned;
+                bar.hidden = false;
+              }
+              if (text) {
+                text.textContent =
+                  'Scanning ' + p.cidr + ' \u2014 ' + p.scanned + ' of ' + p.total + ' addresses';
+              }
+            })
+            .catch(function () { /* a failed poll is not worth surfacing */ })
+            .then(function () {
+              if (polling) setTimeout(poll, 400);
+            });
+        }
+        setTimeout(poll, 150);
+
+        fetch(form.getAttribute('action'), { method: 'POST' })
+          .then(function (res) {
+            polling = false;
+            // res.url is where the redirect landed - either / or
+            // /?scan=throttled - so the server-rendered notice is reused
+            // rather than duplicating that decision here.
+            window.location.href = res.url || '/';
+          })
+          .catch(function () {
+            polling = false;
+            if (text) text.textContent = 'The scan could not be started. Please try again.';
+            if (bar) bar.hidden = true;
+          });
       });
     });
+
   })();
   </script>
 </body>

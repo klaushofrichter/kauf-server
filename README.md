@@ -69,9 +69,15 @@ Public web UI: https://bulbs.skylar.technology
 - `POST /ui/discover` (web UI "Refresh") — runs a discovery sweep, then
   redirects to `/`, which re-reads every bulb's live state. The sweep is
   blocking and takes several seconds, so the toolbar disables its buttons and
-  shows a "Scanning the network for bulbs…" panel while it runs. It shares
-  the one-per-minute discovery budget with `POST /discover`; when throttled
-  it redirects back to `/` with an explanation rather than a raw 429.
+  shows a progress meter — "Scanning 192.168.1.0/24 — 120 of 254 addresses" —
+  while it runs. It shares the one-per-minute discovery budget with
+  `POST /discover`; when throttled it redirects back to `/` with an
+  explanation rather than a raw 429. Without JavaScript the form still posts
+  and blocks as before, just without the meter.
+- `GET /ui/discover/progress` — session-authenticated JSON
+  `{running, scanned, total, cidr}` for the meter above. Polled a few times a
+  second during a sweep, so it has its own generous rate limit rather than
+  sharing the 30-per-15-minutes budget, which two refreshes would exhaust.
 - `POST /ui/bulb/:id/toggle` — web UI action that toggles a bulb on/off;
   requires the same session auth as `GET /`, then redirects back to `/`.
 - `POST /ui/bulb/:id/name` — web UI action used by the modal's nickname

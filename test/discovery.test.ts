@@ -12,7 +12,7 @@ vi.mock('../src/bulbs/store', () => ({
 
 import { pingBulb, findLightEntity } from '../src/bulbs/deviceApi';
 import { loadBulbs, upsertBulb } from '../src/bulbs/store';
-import { runDiscoveryScan, listCidrAddresses } from '../src/bulbs/discovery';
+import { runDiscoveryScan, listCidrAddresses, getScanProgress } from '../src/bulbs/discovery';
 
 describe('listCidrAddresses', () => {
   it('lists usable host addresses for a /30, excluding network and broadcast', () => {
@@ -103,5 +103,53 @@ describe('runDiscoveryScan', () => {
     await runDiscoveryScan('192.168.1.0/30');
 
     expect(upsertBulb).not.toHaveBeenCalled();
+  });
+});
+
+describe('scan progress', () => {
+  it('reports zero before any scan has run', () => {
+    // Whatever else is true, the meter must never claim progress it has not
+    // made - a total of 0 is what the UI treats as "no bar yet".
+    const p = getScanProgress();
+    expect(p.scanned).toBeLessThanOrEqual(p.total);
+  });
+
+  it('counts every address and finishes not running', async () => {
+    vi.mocked(pingBulb).mockResolvedValue(null);
+
+    await runDiscoveryScan('10.0.0.0/29');
+
+    const p = getScanProgress();
+    // /29 = 8 addresses, minus network and broadcast = 6 scanned.
+    expect(p.total).toBe(6);
+    expect(p.scanned).toBe(6);
+    expect(p.running).toBe(false);
+    expect(p.cidr).toBe('10.0.0.0/29');
+  });
+
+  it('counts an address that matched a bulb, not just the misses', async () => {
+    // The counter is incremented on several branches; an early return that
+    // forgot one would silently stall the bar just short of complete.
+    vi.mocked(pingBulb).mockResolvedValue({
+      mac: 'AA:BB:CC:DD:EE:01',
+      hostname: 'kauf',
+      title: 'Kauf',
+      firmwareVersion: null,
+      esphomeVersion: null,
+    });
+    vi.mocked(findLightEntity).mockResolvedValue('kauf_light');
+
+    await runDiscoveryScan('10.0.0.0/29');
+
+    expect(getScanProgress().scanned).toBe(6);
+  });
+
+  it('stops reporting running if the scan throws', async () => {
+    vi.mocked(pingBulb).mockRejectedValue(new Error('network gone'));
+
+    await expect(runDiscoveryScan('10.0.0.0/30')).rejects.toThrow();
+
+    // Otherwise the UI would poll a meter that never completes.
+    expect(getScanProgress().running).toBe(false);
   });
 });

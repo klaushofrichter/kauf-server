@@ -3,7 +3,11 @@ import fs from 'fs';
 import path from 'path';
 import { renderPage } from '../views/page';
 import { requireAuth } from '../middleware/requireAuth';
-import { createAuthRateLimit, createUiDiscoverRateLimit } from '../middleware/authRateLimit';
+import {
+  createAuthRateLimit,
+  createUiDiscoverRateLimit,
+  createProgressRateLimit,
+} from '../middleware/authRateLimit';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { requireSameOrigin } from '../middleware/requireSameOrigin';
 import { verifySession } from '../session';
@@ -15,7 +19,7 @@ import {
   setAllBulbsState,
   renameBulbAndGetState,
 } from '../bulbs/service';
-import { runDiscoveryScan } from '../bulbs/discovery';
+import { runDiscoveryScan, getScanProgress } from '../bulbs/discovery';
 import { parseSetOptions } from '../bulbs/validation';
 
 // Express 5 types route params as `string | string[]`, because a path
@@ -159,6 +163,15 @@ indexRouter.post(
     await setAllBulbsState(false);
     res.redirect(302, '/');
   })
+);
+
+indexRouter.get(
+  '/ui/discover/progress',
+  createProgressRateLimit(),
+  requireAuth,
+  (_req: Request, res: Response) => {
+    res.status(200).json(getScanProgress());
+  }
 );
 
 indexRouter.post(

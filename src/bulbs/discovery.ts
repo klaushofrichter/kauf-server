@@ -45,27 +45,64 @@ async function runWithConcurrency<T>(
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => next()));
 }
 
+export interface ScanProgress {
+  running: boolean;
+  scanned: number;
+  total: number;
+  cidr: string;
+}
+
+// Progress of the most recent scan. A single object rather than one per
+// caller: this service runs at min/max-scale=1, so there is exactly one
+// process, and the manual sweep and the 20-minute automatic one are the only
+// writers. If they overlap, the later one resets this and the UI follows it -
+// the count stays truthful about *a* scan, which is all the meter claims.
+let progress: ScanProgress = { running: false, scanned: 0, total: 0, cidr: '' };
+
+export function getScanProgress(): ScanProgress {
+  return { ...progress };
+}
+
 export async function runDiscoveryScan(cidr: string = getCidr()): Promise<number> {
   const addresses = listCidrAddresses(cidr);
+  progress = { running: true, scanned: 0, total: addresses.length, cidr };
   const knownMacs = new Set(loadBulbs().map((b) => b.mac));
   let foundCount = 0;
 
-  await runWithConcurrency(addresses, SCAN_CONCURRENCY, async (ip) => {
+  const done = (): void => {
+    progress.scanned += 1;
+  };
+
+  try {
+    await runWithConcurrency(addresses, SCAN_CONCURRENCY, async (ip) => {
     const ping = await pingBulb(ip);
-    if (!ping) return;
+    if (!ping) {
+      done();
+      return;
+    }
 
     foundCount++;
 
     if (knownMacs.has(ping.mac)) {
       upsertBulb({ mac: ping.mac, hostname: ping.hostname, title: ping.title, ip });
+      done();
       return;
     }
 
     const objectId = await findLightEntity(ip);
-    if (!objectId) return;
+    if (!objectId) {
+      done();
+      return;
+    }
 
     upsertBulb({ mac: ping.mac, hostname: ping.hostname, title: ping.title, ip, objectId });
-  });
+    done();
+    });
+  } finally {
+    // In a finally so a thrown scan cannot leave the UI polling a meter that
+    // never completes.
+    progress.running = false;
+  }
 
   return foundCount;
 }
