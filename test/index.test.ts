@@ -84,6 +84,21 @@ describe('GET /', () => {
     expect(response.text).toContain('/auth/logout');
   });
 
+  it('links the version to the repository', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/').set('Cookie', cookie);
+
+    expect(response.text).toMatch(
+      /<a id="app-version"[^>]*href="https:\/\/github\.com\/klaushofrichter\/kauf-server"/
+    );
+    // Opens in a new tab, so a click does not navigate away from a control
+    // panel mid-task; noopener because target=_blank otherwise hands the new
+    // page a reference back to this window.
+    expect(response.text).toMatch(/<a id="app-version"[^>]*rel="noopener noreferrer"/);
+  });
+
   it('shows the bulb icon in front of the page title', async () => {
     const app = createApp();
     const cookie = `session=${signSession('allowed@example.com')}`;
@@ -186,7 +201,9 @@ describe('GET / build version', () => {
 
     const response = await request(app).get('/').set('Cookie', cookie);
 
-    expect(response.text).toContain('id="app-version" class="app-version">2026.08.24.1<');
+    // Matched on the rendered text rather than an exact attribute string, so
+    // adding an attribute to the element does not break this.
+    expect(response.text).toMatch(/id="app-version"[^>]*>2026\.08\.24\.1</);
   });
 
   it('falls back to dev when nothing was stamped in', async () => {
@@ -196,7 +213,7 @@ describe('GET / build version', () => {
 
     const response = await request(app).get('/').set('Cookie', cookie);
 
-    expect(response.text).toContain('id="app-version" class="app-version">dev<');
+    expect(response.text).toMatch(/id="app-version"[^>]*>dev</);
   });
 });
 
