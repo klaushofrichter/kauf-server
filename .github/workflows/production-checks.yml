@@ -64,7 +64,11 @@ jobs:
           set -euo pipefail
           total=0
           for f in sarif-results/*.sarif; do
-            count=$(jq '[.runs[].results[]] | length' "$f")
+            # Results CodeQL itself marked suppressed (an inline
+            # `// codeql[rule-id]` comment) are excluded, so a documented
+            # suppression at one location does not require disabling the rule
+            # for the whole repository.
+            count=$(jq '[.runs[].results[] | select((.suppressions // []) | length == 0)] | length' "$f")
             total=$((total + count))
             # Print what was actually found, not just how many. Results are
             # not uploaded to the Security tab (upload: never), so without
@@ -73,6 +77,7 @@ jobs:
             jq -r '
               .runs[] as $run
               | $run.results[]
+              | select((.suppressions // []) | length == 0)
               | . as $r
               | ($r.locations[0].physicalLocation // {}) as $loc
               | "::error file=\($loc.artifactLocation.uri // "?"),line=\($loc.region.startLine // 0)::[\($r.ruleId)] \($r.message.text)"
