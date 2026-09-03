@@ -176,9 +176,27 @@ describe('the emitted line is well formed', () => {
     await (method === 'get' ? agent.get(path) : agent.post(path));
 
     expect(raw).toHaveLength(1);
-    for (const key of ['kind', 'reqId', 'method', 'path', 'status', 'ip', 'durationMs']) {
+    for (const key of ['kind', 'reqId', 'method', 'path', 'status', 'durationMs']) {
       expect(keyCount(raw[0], key), `key "${key}" duplicated in: ${raw[0]}`).toBe(1);
     }
     expect(lines[0].status).toBe(status);
+  });
+});
+
+describe('no client address is logged', () => {
+  // Not a privacy choice - the address is unobtainable. Traefik's Service
+  // runs externalTrafficPolicy: Cluster, so kube-proxy SNATs the source
+  // before Traefik sees it and the client is absent from X-Forwarded-For
+  // entirely. Logging it yielded a constant in-cluster address, which is
+  // PII-shaped noise identifying nobody. Restore only if the Traefik Service
+  // moves to externalTrafficPolicy: Local.
+  it('omits ip entirely rather than reporting an in-cluster address', async () => {
+    await request(appWith(stream))
+      .get('/bulbs')
+      .set('X-Forwarded-For', '72.177.88.245, 10.42.0.15');
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).not.toHaveProperty('ip');
+    expect(raw[0]).not.toContain('10.42.');
   });
 });

@@ -61,12 +61,18 @@ function flatten(
     // cannot leak here by accident.
     path: (req.url || '').split('?')[0],
     status: res.statusCode,
-    // Express's resolved client address, which depends on `trust proxy`
-    // matching the real hop count (Traefik -> Kourier -> queue-proxy -> here).
-    // If this shows an in-cluster 10.42.x/10.43.x address in production then
-    // trust proxy is under-counting and the field is noise - check the first
-    // real line before anything is built on it.
-    ip: req.ip as string | undefined,
+    // No client address. It is not omitted for privacy - it is unobtainable.
+    // The k3s Traefik LoadBalancer Service runs externalTrafficPolicy:
+    // Cluster, so kube-proxy SNATs the source before Traefik sees the packet:
+    // the real client is absent from X-Forwarded-For entirely, rather than
+    // further along it. Logging it produced a constant in-cluster address
+    // (10.42.0.15, then 10.42.0.1 after widening the trusted list - Express
+    // simply walked further left and hit the bottom sooner), which is
+    // PII-shaped noise carrying no information about the caller.
+    //
+    // If externalTrafficPolicy is ever changed to Local on the Traefik
+    // Service, the address starts arriving and this is worth restoring -
+    // `trust proxy` is already configured to resolve it correctly.
   };
 }
 
