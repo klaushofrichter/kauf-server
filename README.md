@@ -127,11 +127,17 @@ can be re-derived from a fresh scan, and the PVC is backed up via Velero.
 
 - Push to `main` → tests run, image built and pushed to
   `ghcr.io/klaushofrichter/kauf-server` (tags `main` and the commit SHA).
-- PR into `production` → tests + CodeQL gate.
-- Push to `production` → cuts a release (see below), image built/pushed
+- PR into `production` → tests, `npm audit --audit-level=high` and a CodeQL
+  gate. `production` is a protected branch requiring the `test` and `codeql`
+  checks, so promotion goes through a PR from `main`; it can no longer be
+  pushed to directly. (E2E is not a separate required context here — the
+  Playwright suite runs inside the `test` job.)
+- Merge into `production` → cuts a release (see below), image built/pushed
   tagged with the commit SHA, the version, and `latest`; `kube-setup`'s
   `manifests/bulbs/bulbs-ksvc.yaml` updated with the new (SHA-tagged) image
-  and applied to the cluster via `kubectl` on a self-hosted runner.
+  and applied to the cluster via `kubectl` on a self-hosted runner, then
+  smoke-tested against the public URL. What that smoke test observed is
+  recorded in the release notes under "Verified at release".
 
 ### Releases
 
