@@ -162,3 +162,24 @@ test('a sweep shows a progress meter and disables the toolbar', async ({ page })
   await expect(page.locator('#busy-panel')).toBeHidden();
   await expect(page.getByRole('button', { name: 'Refresh' })).toBeEnabled();
 });
+
+test('the throttle notice cleans its URL and dismisses itself', async ({ page }) => {
+  // A short countdown so the test does not sit through a real minute.
+  await page.goto('/?scan=throttled&retry=2');
+
+  const panel = page.locator('#busy-panel');
+  await expect(panel).toBeVisible();
+  await expect(page.locator('#busy-text')).toHaveText(/refresh again in 2 seconds/);
+
+  // The query param must be stripped, or a reload re-renders the warning
+  // from the URL long after the limit cleared - the notice would outlive the
+  // condition it describes.
+  await expect.poll(() => new URL(page.url()).search).toBe('');
+
+  // And it goes away on its own rather than sitting there indefinitely.
+  await expect(panel).toBeHidden({ timeout: 5000 });
+
+  // A reload now starts clean, because the URL no longer carries the flag.
+  await page.reload();
+  await expect(page.locator('#busy-panel')).toBeHidden();
+});
