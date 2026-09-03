@@ -62,6 +62,10 @@ Public web UI: https://bulbs.skylar.technology
 - `GET /` — web UI, requires signing in with Google (restricted to emails in
   `ALLOWED_EMAILS`). The header shows the running build's version (see
   Releases below) to the left of the signed-in email.
+- `POST /ui/discover` (web UI "Refresh") — runs a discovery sweep, then
+  redirects to `/`, which re-reads every bulb's live state. The sweep is
+  blocking and takes several seconds, so the toolbar disables its buttons and
+  shows a "Scanning the network for bulbs…" panel while it runs.
 - `POST /ui/bulb/:id/toggle` — web UI action that toggles a bulb on/off;
   requires the same session auth as `GET /`, then redirects back to `/`.
 - `POST /ui/bulb/:id/name` — web UI action used by the modal's nickname

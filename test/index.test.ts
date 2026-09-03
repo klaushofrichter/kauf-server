@@ -120,6 +120,20 @@ describe('GET /', () => {
     expect(response.text).toContain('action="/ui/bulbs/off"');
   });
 
+  it('includes the busy panel and a wait message per toolbar action', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/').set('Cookie', cookie);
+
+    expect(response.text).toContain('id="busy-panel"');
+    // Hidden until a submit, so a freshly loaded page shows nothing.
+    expect(response.text).toContain('id="busy-panel" role="status" aria-live="polite" hidden');
+    expect(response.text).toContain('data-busy="Scanning the network for bulbs');
+    expect(response.text).toContain('data-busy="Turning all bulbs on');
+    expect(response.text).toContain('data-busy="Turning all bulbs off');
+  });
+
   it('includes the modal markup', async () => {
     const app = createApp();
     const cookie = `session=${signSession('allowed@example.com')}`;
