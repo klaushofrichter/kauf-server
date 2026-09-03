@@ -14,10 +14,28 @@
 //      address on every line and so useless for seeing where traffic or an
 //      attack came from.
 //   2. express-rate-limit, which keys on req.ip by default. With one constant
-//      value it was not rate limiting per client at all - all callers shared
-//      a single 30-requests-per-15-minutes bucket, so one noisy client (or
-//      one attacker) could exhaust the budget for everybody, including the
+//      value it is not rate limiting per client at all - all callers share a
+//      single 30-requests-per-15-minutes bucket, so one noisy client (or one
+//      attacker) can exhaust the budget for everybody, including the
 //      signed-in user.
+//
+// IMPORTANT: this setting does NOT fix either of those, and an earlier
+// version of this comment wrongly claimed it fixed the second. The k3s
+// Traefik LoadBalancer Service runs externalTrafficPolicy: Cluster, so
+// kube-proxy SNATs the source address before Traefik sees the packet. The
+// client address is absent from X-Forwarded-For entirely rather than further
+// along it, and no trust proxy value can recover what never arrived -
+// widening the list only moved the reported address from 10.42.0.15 to the
+// cni0 bridge at 10.42.0.1. The rate limiter is still global, and the `ip`
+// field has been dropped from the request log for the same reason.
+//
+// What this setting still earns: req.protocol resolves to https from
+// X-Forwarded-Proto, which requireSameOrigin depends on to build the expected
+// origin - if that were wrong, every state-changing UI request would be
+// rejected as cross-origin. Verified in production against the live service.
+// And if externalTrafficPolicy is ever set to Local on the Traefik Service,
+// the address starts arriving and this resolves it correctly with no further
+// change.
 //
 // A list rather than a hop count on purpose. Express walks X-Forwarded-For
 // from the right, skipping every address that matches this list, and returns

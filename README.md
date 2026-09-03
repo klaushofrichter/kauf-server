@@ -72,8 +72,19 @@ Public web UI: https://bulbs.skylar.technology
   web UI.
 - `GET /favicon.png` — unprotected, serves the site favicon.
 
-All of the above are also rate-limited (30 requests per 15 minutes per
-client) to bound brute-force and runaway-client behavior.
+All of the above are also rate-limited, 30 requests per 15 minutes, to
+bound brute-force and runaway-client behaviour.
+
+That limit is currently **global rather than per client**, which is not what
+it looks like in the code. `express-rate-limit` keys on `req.ip`, but the
+k3s Traefik LoadBalancer Service runs `externalTrafficPolicy: Cluster`, so
+kube-proxy SNATs the source address before Traefik sees the packet and every
+request arrives carrying the same in-cluster address. All callers therefore
+share one bucket, and one noisy client can exhaust the budget for everybody
+including the signed-in user. No `trust proxy` setting can recover the
+address, because it never reaches the cluster; the fix is
+`externalTrafficPolicy: Local` on the Traefik Service, which lives in the
+separate `kube-setup` repo.
 
 Separately, calls to a physical bulb's own set-state HTTP endpoint are
 capped at 3 per second per device IP, regardless of which route triggered
@@ -92,9 +103,9 @@ Every API call is logged as one line of structured JSON on stdout, via
 `pino`/`pino-http` (`src/logger.ts`):
 
 ```json
-{"level":30,"time":1788438393450,"durationMs":10,"kind":"api_request",
- "reqId":"c0e98556-...","method":"GET","path":"/bulbs","status":200,
- "ip":"203.0.113.7","msg":"api_request"}
+{"level":30,"time":1788439572641,"durationMs":13,"kind":"api_request",
+ "reqId":"32a3e307-...","method":"GET","path":"/bulbs","status":200,
+ "msg":"api_request"}
 ```
 
 - `kind: "api_request"` is a stable discriminator, so a log query can select
@@ -110,6 +121,12 @@ Every API call is logged as one line of structured JSON on stdout, via
   same reason.
 - No authenticated email is logged: it is personal data leaving the cluster,
   and on a single-user service it carries no analytical value.
+- **No client address is logged**, because none arrives. Traefik's Service
+  runs `externalTrafficPolicy: Cluster`, so kube-proxy SNATs the source
+  before Traefik sees the packet and the client is absent from
+  `X-Forwarded-For` entirely. Logging it produced a constant in-cluster
+  address identifying nobody. Worth restoring only if that policy changes to
+  `Local` — see the rate-limiting note above, which has the same root cause.
 
 Nothing is written to a file. In a container the platform owns the log file —
 the kubelet captures stdout and rotates it (k3s defaults to 10Mi × 5 per
