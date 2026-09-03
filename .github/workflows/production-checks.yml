@@ -21,6 +21,13 @@ jobs:
 
       - run: npm ci
 
+      # Typecheck explicitly. `npm test` runs vitest, which transpiles via
+      # esbuild and does not typecheck, so nothing in CI was checking types
+      # or tsconfig at all - a TypeScript 7 upgrade that removed the
+      # configured moduleResolution passed every check here and would only
+      # have failed later, building the image.
+      - run: npm run build
+
       - run: npm test
 
       - name: Install Playwright browsers
