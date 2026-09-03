@@ -84,6 +84,18 @@ describe('GET /', () => {
     expect(response.text).toContain('/auth/logout');
   });
 
+  it('shows the bulb icon in front of the page title', async () => {
+    const app = createApp();
+    const cookie = `session=${signSession('allowed@example.com')}`;
+
+    const response = await request(app).get('/').set('Cookie', cookie);
+
+    expect(response.text).toContain('<img src="/favicon.png" alt="" class="title-icon">');
+    // Decorative: the heading text beside it already names the page, so it
+    // must not be announced twice.
+    expect(response.text).toContain('alt=""');
+  });
+
   it('lists discovered bulbs as cards with a data-id and the toggle form', async () => {
     vi.mocked(listWithLiveState).mockResolvedValue([
       {

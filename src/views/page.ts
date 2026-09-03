@@ -54,6 +54,14 @@ export function renderPage(
   <style>
     body { font-family: system-ui, sans-serif; max-width: 960px; margin: 3rem auto; padding: 0 1rem; }
     header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+    h1 { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
+    /* Scales with the heading rather than a fixed pixel size, so it stays
+       proportional if the type size ever changes. Sized above 1em because
+       the source artwork carries whitespace margin - at 1em the visible
+       bulb reads smaller than the cap height beside it. alt="" because the
+       heading text already names the page; announcing it twice would just
+       be noise for a screen reader. */
+    .title-icon { height: 1.6em; width: auto; margin-left: -0.15em; }
     a.logout { color: #666; text-decoration: none; font-size: 0.9rem; }
     a.logout:hover { text-decoration: underline; }
     .app-version { color: #999; font-size: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
@@ -94,7 +102,7 @@ export function renderPage(
 </head>
 <body>
   <header>
-    <h1>Kauf Bulbs</h1>
+    <h1><img src="/favicon.png" alt="" class="title-icon">Kauf Bulbs</h1>
     <div>
       <span id="app-version" class="app-version">${escapeHtml(appVersion())}</span> &middot;
       <span>${escapeHtml(email)}</span> &middot;
