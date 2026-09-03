@@ -1,8 +1,13 @@
 name: Production PR checks
 
+# Both branches, not just production. PRs to main - Dependabot's, in
+# particular - previously ran nothing at all: build-push.yml triggers on
+# push, and this file only listened for production. Dependency bumps would
+# land on main unverified and be first tested when someone opened the
+# promotion PR.
 on:
   pull_request:
-    branches: [production]
+    branches: [main, production]
 
 jobs:
   test:
@@ -10,9 +15,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 26
 
       - run: npm ci
 
@@ -23,6 +28,18 @@ jobs:
 
       - name: Run E2E tests
         run: npm run test:e2e
+
+      # Dependabot notices a vulnerable dependency, but noticing is not
+      # blocking: without this step a package with a known advisory can be
+      # merged and deployed while its fix PR sits open. Threshold is `high`
+      # rather than the default so that a moderate advisory whose only fix is
+      # a major upgrade cannot wedge unrelated merges - the alerts still
+      # surface those, they just do not stop the queue.
+      #
+      # This lives in the `test` job deliberately. As a separate job it would
+      # gate nothing until someone remembered to add it to the required-checks
+      # list; here it rides on a job that is already required.
+      - run: npm audit --audit-level=high
 
   codeql:
     runs-on: ubuntu-latest

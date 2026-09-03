@@ -4,11 +4,20 @@ import request from 'supertest';
 const getTokenMock = vi.fn();
 const verifyIdTokenMock = vi.fn();
 
+// The implementation must be a `function`, not an arrow: src/routes/auth.ts
+// does `new OAuth2Client(...)`, and from Vitest 4 the mock is invoked with
+// `new` semantics. An arrow function is not constructible, so it threw
+// "TypeError: () => ({...}) is not a constructor" - surfacing as six auth
+// tests timing out rather than as an obvious construction error.
+// Returning an object from a constructor overrides `this`, so this keeps the
+// original shape: every `new OAuth2Client()` yields these two spies.
 vi.mock('google-auth-library', () => ({
-  OAuth2Client: vi.fn().mockImplementation(() => ({
-    getToken: getTokenMock,
-    verifyIdToken: verifyIdTokenMock,
-  })),
+  OAuth2Client: vi.fn().mockImplementation(function () {
+    return {
+      getToken: getTokenMock,
+      verifyIdToken: verifyIdTokenMock,
+    };
+  }),
 }));
 
 import { createApp } from '../src/app';
