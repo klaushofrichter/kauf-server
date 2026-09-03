@@ -56,6 +56,9 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     #bulbs-empty { color: #888; font-style: italic; }
     .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
     .toolbar form { margin: 0; }
+    .toolbar button[disabled], .bulb-toggle-form button[disabled] { opacity: 0.5; cursor: default; }
+    #busy-panel { margin: -0.75rem 0 1.25rem; padding: 0.6rem 0.9rem; background: #eef4ff; border: 1px solid #cddcf5; border-radius: 0.35rem; color: #23406e; font-size: 0.9rem; }
+    #busy-panel[hidden] { display: none; }
     #bulbs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
     .bulb-card { background: #fafafa; border: 1px solid #eee; border-radius: 0.5rem; padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; cursor: pointer; }
     .bulb-icon { width: 48px; height: 48px; fill: var(--bulb-color, #999); transition: fill 0.2s; }
@@ -95,10 +98,11 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
     </div>
   </header>
   <div class="toolbar">
-    <form method="POST" action="/ui/discover"><button type="submit">Refresh</button></form>
-    <form method="POST" action="/ui/bulbs/on"><button type="submit">All On</button></form>
-    <form method="POST" action="/ui/bulbs/off"><button type="submit">All Off</button></form>
+    <form method="POST" action="/ui/discover" data-busy="Scanning the network for bulbs&hellip;"><button type="submit">Refresh</button></form>
+    <form method="POST" action="/ui/bulbs/on" data-busy="Turning all bulbs on&hellip;"><button type="submit">All On</button></form>
+    <form method="POST" action="/ui/bulbs/off" data-busy="Turning all bulbs off&hellip;"><button type="submit">All Off</button></form>
   </div>
+  <p id="busy-panel" role="status" aria-live="polite" hidden></p>
   ${renderBulbList(bulbs)}
 
   <dialog id="bulb-modal">
@@ -358,6 +362,36 @@ export function renderPage(email: string, bulbs: BulbWithState[]): string {
 
     document.querySelector('.modal-close').addEventListener('click', function () {
       modal.close();
+    });
+
+    // The toolbar actions are blocking server-side operations - a discovery
+    // sweep of the whole subnet takes several seconds, and the bulk on/off
+    // calls every known bulb. The page does not navigate until they finish,
+    // so without this the UI sits looking identical and the click appears to
+    // have done nothing. That is what made Refresh look like it was not
+    // reading bulb status: it does, but only once the sweep returns.
+    //
+    // Bound on submit rather than click, so it covers keyboard submission
+    // too, and so a browser without JS still posts the form normally - these
+    // are plain form POSTs and must keep working unaided.
+    Array.prototype.forEach.call(document.querySelectorAll('.toolbar form'), function (form) {
+      form.addEventListener('submit', function () {
+        var panel = document.getElementById('busy-panel');
+        if (panel) {
+          panel.textContent = form.getAttribute('data-busy') || 'Working\u2026';
+          panel.hidden = false;
+        }
+        // Disable every button on the page, not just this form's: while a
+        // sweep is in flight the others would queue up behind it, and a
+        // second discovery scan is exactly what you do not want to start.
+        // Deferred a tick so the button's own value still submits.
+        setTimeout(function () {
+          Array.prototype.forEach.call(
+            document.querySelectorAll('.toolbar button, .bulb-toggle-form button'),
+            function (button) { button.disabled = true; }
+          );
+        }, 0);
+      });
     });
   })();
   </script>

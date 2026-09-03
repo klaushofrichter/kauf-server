@@ -111,3 +111,37 @@ test('moving the brightness slider alone does not send any request', async ({ pa
 
   expect(setRequests).toBe(0);
 });
+
+test('the toolbar shows a wait panel and disables buttons while a sweep runs', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#busy-panel')).toBeHidden();
+
+  // Submit for real, but suppress only the navigation. Letting the browser
+  // navigate makes the busy state unobservable - Playwright serialises
+  // assertions against the pending navigation, so by the time it looks, the
+  // fresh page has already replaced the one being asserted on. This still
+  // exercises the shipped submit handler; a listener added here runs after
+  // the page's own, which has already done its work.
+  await page.evaluate(() => {
+    const form = document.querySelector('.toolbar form') as HTMLFormElement;
+    form.addEventListener('submit', (e) => e.preventDefault(), { once: true });
+    form.requestSubmit();
+  });
+
+  const panel = page.locator('#busy-panel');
+  await expect(panel).toBeVisible();
+  await expect(panel).toHaveText(/Scanning the network for bulbs/);
+
+  // Every action disabled, not just Refresh: a second sweep queued behind
+  // the first is exactly what this prevents.
+  await expect(page.getByRole('button', { name: 'Refresh' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'All On' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'All Off' })).toBeDisabled();
+  // Card actions too, so a bulb toggle cannot race the sweep.
+  await expect(page.locator('.bulb-toggle-form button').first()).toBeDisabled();
+
+  // And it is transient: a normal page load starts clean again.
+  await page.goto('/');
+  await expect(page.locator('#busy-panel')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Refresh' })).toBeEnabled();
+});
