@@ -61,18 +61,20 @@ function flatten(
     // cannot leak here by accident.
     path: (req.url || '').split('?')[0],
     status: res.statusCode,
-    // No client address. It is not omitted for privacy - it is unobtainable.
-    // The k3s Traefik LoadBalancer Service runs externalTrafficPolicy:
-    // Cluster, so kube-proxy SNATs the source before Traefik sees the packet:
-    // the real client is absent from X-Forwarded-For entirely, rather than
-    // further along it. Logging it produced a constant in-cluster address
-    // (10.42.0.15, then 10.42.0.1 after widening the trusted list - Express
-    // simply walked further left and hit the bottom sooner), which is
-    // PII-shaped noise carrying no information about the caller.
+    // Client address. This was removed once as unobtainable: the Traefik
+    // Service ran externalTrafficPolicy: Cluster, so kube-proxy SNAT'd the
+    // source and every request reported the same in-cluster address. That
+    // policy has since been changed to Local, so a real address now arrives
+    // and `trust proxy` resolves it (see src/trustProxy.ts).
     //
-    // If externalTrafficPolicy is ever changed to Local on the Traefik
-    // Service, the address starts arriving and this is worth restoring -
-    // `trust proxy` is already configured to resolve it correctly.
+    // This is personal data leaving the cluster, kept deliberately: it is
+    // what makes the 401/403/429 lines usable for seeing where an attack
+    // comes from, which is the reason those lines are logged at all.
+    //
+    // Expect the router's address, not a public one, for anything
+    // originating inside the LAN - the router hairpins the request and
+    // becomes the source. That is correct, not a regression.
+    ip: req.ip as string | undefined,
   };
 }
 
@@ -123,3 +125,92 @@ export function createHttpLogger(destination?: pino.DestinationStream) {
 }
 
 export const httpLogger = createHttpLogger();
+
+// Maximum response body captured per request. A body is held in memory until
+// the response finishes, so this is a hard cap rather than a formatting
+// nicety - the rendered page alone is ~20KB and nothing is gained by keeping
+// all of it.
+const MAX_BODY_BYTES = 8 * 1024;
+
+// Only bodies we can read as text. A favicon or other binary payload would
+// be noise at best and could corrupt the log line at worst.
+function isTextual(contentType: string | number | string[] | undefined): boolean {
+  const value = Array.isArray(contentType) ? contentType[0] : String(contentType ?? '');
+  return /json|text\/|javascript|xml/i.test(value);
+}
+
+// Logs the full response body, at DEBUG and only at DEBUG.
+//
+// THIS LEVEL IS THE ENTIRE SAFETY MECHANISM. The Alloy collector discards
+// pino level 20 (debug) before anything leaves the cluster, so these lines
+// are visible in `kubectl logs` and Headlamp but never reach Grafana Cloud.
+// Everything at info/warn/error DOES ship to a third party.
+//
+// So: a response body must never be logged above debug. Raising this level,
+// or copying the body onto the api_request line (which is info/warn/error),
+// would route around every redaction decision in this file at once - the
+// Authorization and Cookie headers stripped at source, the query strings
+// dropped so a later parameter cannot leak, the authenticated email left
+// out as PII. A body can contain any of them, and this service is behind
+// Google OAuth.
+//
+// Capture is skipped entirely unless debug is enabled, so normal operation
+// pays nothing for it.
+export function responseBodyLogger(req: IncomingMessage, res: ServerResponse, next: () => void): void {
+  if (!logger.isLevelEnabled('debug')) {
+    next();
+    return;
+  }
+
+  const chunks: Buffer[] = [];
+  let captured = 0;
+  let truncated = false;
+
+  const originalWrite = res.write.bind(res);
+  const originalEnd = res.end.bind(res);
+
+  const capture = (chunk: unknown): void => {
+    if (!chunk || captured >= MAX_BODY_BYTES) {
+      if (chunk && captured >= MAX_BODY_BYTES) truncated = true;
+      return;
+    }
+    const buf = Buffer.isBuffer(chunk) ? chunk : typeof chunk === 'string' ? Buffer.from(chunk) : null;
+    if (!buf) return;
+    const room = MAX_BODY_BYTES - captured;
+    if (buf.length > room) truncated = true;
+    chunks.push(buf.subarray(0, room));
+    captured += Math.min(buf.length, room);
+  };
+
+  res.write = function (this: ServerResponse, chunk: unknown, ...rest: unknown[]) {
+    capture(chunk);
+    return (originalWrite as (...a: unknown[]) => boolean)(chunk, ...rest);
+  } as typeof res.write;
+
+  res.end = function (this: ServerResponse, chunk?: unknown, ...rest: unknown[]) {
+    if (typeof chunk !== 'function') capture(chunk);
+    return (originalEnd as (...a: unknown[]) => ServerResponse)(chunk, ...rest);
+  } as typeof res.end;
+
+  res.on('finish', () => {
+    const contentType = res.getHeader('content-type');
+    const body = isTextual(contentType)
+      ? Buffer.concat(chunks).toString('utf8')
+      : `[${String(contentType ?? 'unknown')}, not captured]`;
+
+    logger.debug(
+      {
+        kind: 'api_response_body',
+        reqId: (req as IncomingMessage & { id?: unknown }).id as string,
+        method: req.method,
+        path: (req.url || '').split('?')[0],
+        status: res.statusCode,
+        truncated,
+        body,
+      },
+      'api_response_body'
+    );
+  });
+
+  next();
+}

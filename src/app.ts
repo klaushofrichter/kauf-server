@@ -1,7 +1,7 @@
 // src/app.ts
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
-import { httpLogger, logger } from './logger';
+import { httpLogger, logger, responseBodyLogger } from './logger';
 import { TRUST_PROXY } from './trustProxy';
 import { healthRouter } from './routes/health';
 import { bulbsRouter } from './routes/bulbs';
@@ -14,6 +14,11 @@ export function createApp(): Express {
   // First, so every request is logged including ones rejected by the
   // middleware below it - the 401/403/429 rejections are the whole point.
   app.use(httpLogger);
+  // After httpLogger so reqId is already assigned and the body line can be
+  // correlated with its request line. Emits at debug only - see the comment
+  // on responseBodyLogger; debug is what the collector drops before Grafana
+  // Cloud, and is the reason full bodies are safe to log here at all.
+  app.use(responseBodyLogger);
   // CSRF: the cookie-authenticated /ui routes are protected by
   // requireSameOrigin (registered in routes/index.ts, covered by
   // test/requireSameOrigin.test.ts), on top of the session cookie's

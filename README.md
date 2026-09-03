@@ -226,11 +226,19 @@ value does not.
 ghcr.io/klaushofrichter/kauf-server:v2026.08.24.1   the released build
 ghcr.io/klaushofrichter/kauf-server:latest          whatever production runs
 ghcr.io/klaushofrichter/kauf-server:main            newest main build, not deployed
-ghcr.io/klaushofrichter/kauf-server:<sha>           every build, by commit
+ghcr.io/klaushofrichter/kauf-server:<sha>           the deployed build, by commit
 ```
 
 `latest` is published by the production deploy rather than by `main`, so
 pulling it gives what is actually deployed instead of an untested build.
+
+The `<sha>`, `v<version>` and `latest` tags are written **only** by the
+production deploy. `main` builds publish just the `main` tag. This matters
+because the cluster manifest pins `<sha>`: when `main` also published it, a
+promotion caused the same commit to be rebuilt for `main` seconds later and
+re-push that tag, replacing the released image in the registry underneath the
+running service — so a later pod restart would quietly bring up the `main`
+build (reporting version `dev`) while the release still claimed otherwise.
 
 Release notes are generated from `CHANGELOG.md`'s `## [Unreleased]` section
 (curate it before merging to `production` if you want specific notes
