@@ -39,7 +39,7 @@ function appWith(stream: Writable) {
   app.get('/bulbs', (_req, res) => {
     res.status(200).json({ bulbs: [] });
   });
-  app.post('/unauthorised', (_req, res) => {
+  app.post('/unauthorized', (_req, res) => {
     res.status(401).json({ error: 'unauthorized' });
   });
   app.post('/forbidden', (_req, res) => {
@@ -70,7 +70,7 @@ describe('credential redaction', () => {
       .set('Authorization', 'Bearer super-secret-token');
 
     expect(lines).toHaveLength(1);
-    // Asserted against the whole serialised line, not just the field we
+    // Asserted against the whole serialized line, not just the field we
     // expect it in: the point is that the token is nowhere in what ships.
     expect(JSON.stringify(lines[0])).not.toContain('super-secret-token');
     expect(JSON.stringify(lines[0])).not.toContain('Bearer');
@@ -127,7 +127,7 @@ describe('log levels', () => {
   });
 
   it.each([
-    ['/unauthorised', 401],
+    ['/unauthorized', 401],
     ['/forbidden', 403],
     ['/limited', 429],
   ])('logs %s (%i) at warn so rejections are visible', async (path, status) => {
@@ -169,7 +169,7 @@ describe('the emitted line is well formed', () => {
   // last duplicate. Only the raw line shows it.
   it.each([
     ['/bulbs', 'get', 200],
-    ['/unauthorised', 'post', 401],
+    ['/unauthorized', 'post', 401],
     ['/forbidden', 'post', 403],
     ['/limited', 'post', 429],
   ])('emits each key exactly once for %s (%s -> %i)', async (path, method, status) => {

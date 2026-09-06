@@ -92,7 +92,7 @@ Public web UI: https://bulbs.skylar.technology
 - `GET /favicon.png` — unprotected, serves the site favicon.
 
 All of the above are also rate-limited, 30 requests per 15 minutes, to
-bound brute-force and runaway-client behaviour.
+bound brute-force and runaway-client behavior.
 
 The limit is applied **per principal**, not per address:
 
@@ -144,7 +144,7 @@ Every API call is logged as one line of structured JSON on stdout, via
   used to fail silently — 5xx is `error`, everything else `info`.
 - `reqId` honours an inbound `x-request-id`, otherwise a UUID.
 - **No credentials are logged.** The `req`/`res` objects are dropped
-  entirely, so no headers are serialised: the Bearer token, session cookie
+  entirely, so no headers are serialized: the Bearer token, session cookie
   and any freshly minted `set-cookie` appear nowhere in the output, asserted
   by `test/logger.test.ts`. Query strings are stripped from `path` for the
   same reason.

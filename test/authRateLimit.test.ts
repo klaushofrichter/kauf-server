@@ -36,11 +36,16 @@ beforeEach(() => {
 });
 
 describe('rate limit buckets are per principal, not shared', () => {
-  it('gives two different API tokens independent budgets', async () => {
-    expect(await exhaust(app, { Authorization: 'Bearer token-one' })).toBe(429);
+  it('gives a valid token and a signed-in user independent budgets', async () => {
+    // Both principals must be real. An earlier version of this test used two
+    // INVALID bearer values and passed, because the limiter was then keying
+    // on whatever was presented - the test was asserting the bypass rather
+    // than the property it was named for.
+    expect(await exhaust(app, { Authorization: 'Bearer test-bulbs-token' })).toBe(429);
 
-    // The second token must be untouched by the first exhausting itself.
-    const other = await request(app).get('/thing').set({ Authorization: 'Bearer token-two' });
+    const other = await request(app)
+      .get('/thing')
+      .set({ Cookie: `session=${signSession('someone@example.com')}` });
     expect(other.status).toBe(200);
   });
 
@@ -60,7 +65,7 @@ describe('rate limit buckets are per principal, not shared', () => {
 
     const authed = await request(app)
       .get('/thing')
-      .set({ Authorization: 'Bearer a-real-token' });
+      .set({ Authorization: 'Bearer test-bulbs-token' });
     expect(authed.status).toBe(200);
 
     const session = await request(app)
@@ -71,7 +76,58 @@ describe('rate limit buckets are per principal, not shared', () => {
 
   it('still limits a single principal, rather than counting nothing', async () => {
     // Separation is only useful if each bucket is enforced.
-    expect(await exhaust(app, { Authorization: 'Bearer one-token' })).toBe(429);
+    expect(await exhaust(app, { Authorization: 'Bearer test-bulbs-token' })).toBe(429);
+  });
+});
+
+describe('rateLimitKey only grants a bucket to a token that validates', () => {
+  // Regression. The bucket was previously keyed on whatever Bearer value was
+  // presented, without checking it first, so a caller could mint a fresh
+  // budget per request by varying the header - the limit was absent for
+  // exactly the unauthenticated traffic it exists to bound, while still
+  // behaving correctly for real callers.
+  function reqWithAuth(value?: string): never {
+    return {
+      get(name: string) {
+        return name.toLowerCase() === 'authorization' ? value : undefined;
+      },
+      cookies: {},
+      ip: '203.0.113.7',
+    } as never;
+  }
+
+  it('gives distinct invalid tokens the SAME key, not one each', () => {
+    const a = rateLimitKey(reqWithAuth('Bearer invented-one'));
+    const b = rateLimitKey(reqWithAuth('Bearer invented-two'));
+    const c = rateLimitKey(reqWithAuth('Bearer invented-three'));
+
+    expect(a).toBe(b);
+    expect(b).toBe(c);
+  });
+
+  it('falls back to the shared address bucket for an invalid token', () => {
+    // Not merely "the same as each other" - it must be the same bucket
+    // unauthenticated traffic already uses, or invalid tokens still get a
+    // pool of their own.
+    const invalid = rateLimitKey(reqWithAuth('Bearer invented'));
+    const anonymous = rateLimitKey(reqWithAuth(undefined));
+
+    expect(invalid).toBe(anonymous);
+    expect(invalid.startsWith('ip:')).toBe(true);
+  });
+
+  it('still gives a valid token its own bucket, distinct from anonymous', () => {
+    // The other direction: the fix must not collapse real callers into the
+    // shared bucket, which would make one noisy client able to starve them.
+    const valid = rateLimitKey(reqWithAuth('Bearer test-bulbs-token'));
+    const anonymous = rateLimitKey(reqWithAuth(undefined));
+
+    expect(valid.startsWith('t:')).toBe(true);
+    expect(valid).not.toBe(anonymous);
+  });
+
+  it('never puts the token itself in the key', () => {
+    expect(rateLimitKey(reqWithAuth('Bearer test-bulbs-token'))).not.toContain('test-bulbs-token');
   });
 });
 
@@ -86,11 +142,11 @@ describe('rateLimitKey', () => {
     } as never;
   }
 
-  it('keys a bearer token by hash, never including the token itself', () => {
-    const key = rateLimitKey(reqWith({ headers: { authorization: 'Bearer super-secret' } }));
+  it('keys a valid bearer token by hash, never including the token itself', () => {
+    const key = rateLimitKey(reqWith({ headers: { authorization: 'Bearer test-bulbs-token' } }));
 
     expect(key.startsWith('t:')).toBe(true);
-    expect(key).not.toContain('super-secret');
+    expect(key).not.toContain('test-bulbs-token');
   });
 
   it('keys a valid session by email', () => {

@@ -118,7 +118,7 @@ test('a sweep shows a progress meter and disables the toolbar', async ({ page })
 
   // Hold the scan open. Refresh is a fetch now rather than a form
   // navigation, so intercepting it works cleanly - the earlier version of
-  // this test had to avoid navigating at all, because Playwright serialises
+  // this test had to avoid navigating at all, because Playwright serializes
   // assertions against a pending navigation.
   let releaseScan: () => void = () => {};
   const scanFinished = new Promise<void>((resolve) => {

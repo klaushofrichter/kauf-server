@@ -23,7 +23,7 @@ export function createApp(): Express {
   // requireSameOrigin (registered in routes/index.ts, covered by
   // test/requireSameOrigin.test.ts), on top of the session cookie's
   // SameSite=Lax. CodeQL's js/missing-token-validation still flags this line
-  // because it only recognises dedicated CSRF-token middleware; it is filtered
+  // because it only recognizes dedicated CSRF-token middleware; it is filtered
   // in .github/codeql/codeql-config.yml, where the reasoning lives.
   app.use(cookieParser());
   app.use(express.json());

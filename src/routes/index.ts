@@ -34,7 +34,7 @@ function bulbId(req: Request): string {
 export const indexRouter = Router();
 
 // Applies to every route below, but only bites on state-changing methods.
-// These routes are authorised by the session cookie alone, so they are the
+// These routes are authorized by the session cookie alone, so they are the
 // CSRF-reachable surface; the Bearer-token API in routes/bulbs.ts is not,
 // since a cross-origin page cannot set an Authorization header.
 indexRouter.use(requireSameOrigin);
