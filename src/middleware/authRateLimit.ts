@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { Request } from 'express';
 import rateLimit, { ipKeyGenerator, RateLimitRequestHandler } from 'express-rate-limit';
 import { verifySession } from '../session';
+import { isValidToken, BEARER_PATTERN } from './requireToken';
 
 const SESSION_COOKIE = 'session';
 
@@ -33,14 +34,24 @@ const SESSION_COOKIE = 'session';
 // keyed separately, that traffic can no longer exhaust the budget of a
 // caller who has already proved who they are.
 export function rateLimitKey(req: Request): string {
-  const auth = req.get('authorization');
-  if (auth && auth.startsWith('Bearer ')) {
+  // Only a token that actually validates earns its own bucket. Keying on the
+  // presented value before checking it would let a caller mint a fresh budget
+  // per request simply by varying the header - the limiter would then be
+  // absent for precisely the unauthenticated traffic it exists to bound,
+  // while continuing to work correctly for real callers, so it would look
+  // healthy. Same reasoning as the session branch below, which this branch
+  // originally failed to apply.
+  //
+  // isValidToken is the same check requireToken performs, imported rather
+  // than reimplemented: if the two could diverge, a request could be
+  // authorised under one rule and bucketed under another.
+  const token = req.get('authorization')?.match(BEARER_PATTERN)?.[1];
+  if (isValidToken('BULBS_API_TOKENS', token)) {
     // Hashed, not raw: the key is held in memory and can surface in
     // diagnostics, and a bearer token should not be sitting in either.
     // Truncated because collision resistance is not what is needed here -
     // only that distinct tokens get distinct buckets.
-    const token = auth.slice('Bearer '.length);
-    return `t:${createHash('sha256').update(token).digest('hex').slice(0, 16)}`;
+    return `t:${createHash('sha256').update(token as string).digest('hex').slice(0, 16)}`;
   }
 
   const cookie = req.cookies?.[SESSION_COOKIE];
