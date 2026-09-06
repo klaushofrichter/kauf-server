@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 
-// CSRF defence for the cookie-authenticated /ui/* routes.
+// CSRF defense for the cookie-authenticated /ui/* routes.
 //
-// Those routes are authorised purely by the session cookie, so without this a
+// Those routes are authorized purely by the session cookie, so without this a
 // page on another origin could make the browser POST to /ui/bulbs/off and act
 // as the signed-in user. The session cookie is already SameSite=Lax, which
 // stops the classic cross-site form POST on its own, but that is a single

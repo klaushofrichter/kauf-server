@@ -36,7 +36,7 @@ export const logger = makeLogger();
 export function levelFor(status: number, url: string): 'debug' | 'info' | 'warn' | 'error' {
   if (url.split('?')[0] === '/health') return 'debug';
   if (status >= 500) return 'error';
-  // 401 unauthorised, 403 forbidden (a non-allowlisted email, or the
+  // 401 unauthorized, 403 forbidden (a non-allowlisted email, or the
   // cross-origin CSRF rejection), 429 rate limited - by the per-client
   // limiter or the per-device one. These are the lines worth alerting on:
   // before this, every one of them failed silently.
@@ -87,7 +87,7 @@ export function createHttpLogger(destination?: pino.DestinationStream) {
     genReqId: (req: IncomingMessage) => (req.headers['x-request-id'] as string) || randomUUID(),
 
     // Backstop, not the primary control. The serializers below drop the req
-    // and res objects entirely, so no headers are serialised in the first
+    // and res objects entirely, so no headers are serialized in the first
     // place - verified by test/logger.test.ts asserting the token, the
     // session cookie and a freshly minted set-cookie appear nowhere in the
     // emitted line. This stays so that restoring a req/res serializer later

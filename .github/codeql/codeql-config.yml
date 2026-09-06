@@ -4,7 +4,7 @@ query-filters:
   # js/missing-token-validation flags src/app.ts's cookieParser() as serving
   # request handlers without CSRF protection. The finding was real when it
   # first fired and has been addressed, but not in a shape the query can
-  # recognise: it looks for dedicated CSRF-token middleware, and this service
+  # recognize: it looks for dedicated CSRF-token middleware, and this service
   # defends the cookie-authenticated /ui routes two other ways instead.
   #
   #   1. src/middleware/requireSameOrigin.ts rejects any state-changing
