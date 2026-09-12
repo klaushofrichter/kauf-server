@@ -88,18 +88,54 @@ jobs:
           rm -rf /tmp/kube-setup-deploy
           git clone "https://x-access-token:${KUBE_SETUP_DEPLOY_TOKEN}@github.com/klaushofrichter/kube-setup.git" /tmp/kube-setup-deploy
           cd /tmp/kube-setup-deploy
-          sed -i "s|image: ghcr.io/klaushofrichter/kauf-server:.*|image: ghcr.io/klaushofrichter/kauf-server:${SHA}|" manifests/bulbs/bulbs-ksvc.yaml
-          grep -q "image: ghcr.io/klaushofrichter/kauf-server:${SHA}$" manifests/bulbs/bulbs-ksvc.yaml \
-            || { echo "::error::manifest image line did not update to ${SHA}"; exit 1; }
           git config user.name "kauf-server-deploy-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add manifests/bulbs/bulbs-ksvc.yaml
-          if git diff --cached --quiet; then
-            echo "No manifest change (image tag already up to date) — skipping commit/push."
-          else
-            git commit -m "Deploy kauf-server ${SHA}"
-            git push
-          fi
+
+          # kube-setup is shared: several deploy bots (kauf-server, instagetter,
+          # art) write manifests to it, and it takes human pushes too. A plain
+          # clone-edit-push therefore races anything landing in between, and a
+          # rejected push aborts the deploy before kubectl apply. That failed
+          # safely - nothing was applied and no release was tagged, because
+          # tagging runs after the smoke test - but it cost a manual re-run for
+          # a reason unrelated to what was being shipped.
+          #
+          # So retry: re-apply the edit onto a freshly fetched main each time,
+          # rather than rebasing a stale commit. The edit is a single sed on one
+          # line, so recomputing it is cheaper and safer than resolving a
+          # conflict, and it is idempotent - if a concurrent push already set
+          # this SHA, there is nothing to commit and we proceed to apply.
+          pushed=""
+          for attempt in 1 2 3 4 5; do
+            git fetch -q origin main
+            git reset -q --hard origin/main
+
+            sed -i "s|image: ghcr.io/klaushofrichter/kauf-server:.*|image: ghcr.io/klaushofrichter/kauf-server:${SHA}|" manifests/bulbs/bulbs-ksvc.yaml
+            grep -q "image: ghcr.io/klaushofrichter/kauf-server:${SHA}$" manifests/bulbs/bulbs-ksvc.yaml \
+              || { echo "::error::manifest image line did not update to ${SHA}"; exit 1; }
+
+            git add manifests/bulbs/bulbs-ksvc.yaml
+            if git diff --cached --quiet; then
+              echo "No manifest change (image tag already up to date) - nothing to push."
+              pushed="yes"
+              break
+            fi
+
+            git commit -q -m "Deploy kauf-server ${SHA}"
+            if git push -q 2>/dev/null; then
+              pushed="yes"
+              break
+            fi
+
+            echo "::warning::push to kube-setup rejected (attempt ${attempt}/5) - another writer landed first; retrying against fresh main"
+            sleep $(( attempt * 3 ))
+          done
+
+          # Never apply a manifest whose image tag is not recorded in kube-setup:
+          # the cluster would then run a revision that the repo does not describe,
+          # and the next deploy from any other bot would silently roll it back.
+          [ -n "${pushed}" ] \
+            || { echo "::error::could not push the manifest update to kube-setup after 5 attempts"; exit 1; }
+
           kubectl apply -f manifests/bulbs/bulbs-ksvc.yaml
           rm -rf /tmp/kube-setup-deploy
 
