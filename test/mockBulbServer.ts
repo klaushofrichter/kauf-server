@@ -7,6 +7,10 @@ export interface MockBulbOptions {
   title?: string;
   projectName?: string;
   objectId?: string;
+  // 0 (the default) picks a free port. The e2e fixture uses a fixed one, so
+  // a server started separately (the Docker image in CI) can be told where
+  // the bulb is before it starts.
+  port?: number;
 }
 
 export interface MockBulbServer {
@@ -102,7 +106,7 @@ export function startMockBulb(options: MockBulbOptions = {}): Promise<MockBulbSe
   });
 
   return new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(options.port ?? 0, '127.0.0.1', () => {
       const port = (server.address() as AddressInfo).port;
       resolve({
         port,

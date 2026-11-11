@@ -1,25 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { signSession } from '../../src/session';
+import { signIn } from './session';
 
-// signSession() reads COOKIE_SECRET lazily at call time, so setting it here
-// (this file runs in the Playwright test-runner process, separate from the
-// `npx tsx src/server.ts` webServer subprocess) just needs to happen before
-// signSession() is called below. Must match playwright.config.ts's
-// webServer.env COOKIE_SECRET so cookies signed here verify against the
-// server under test.
-process.env.COOKIE_SECRET = process.env.COOKIE_SECRET || 'e2e-test-cookie-secret';
-
-test.beforeEach(async ({ context }) => {
-  await context.addCookies([
-    {
-      name: 'session',
-      value: signSession('e2e@example.com'),
-      domain: 'localhost',
-      path: '/',
-      httpOnly: true,
-      secure: true,
-    },
-  ]);
+// Stateful: these change the mock bulb and its data file, so they run in
+// desktop Chromium only (playwright.config.ts). The read-only walk of the same
+// page, in four browsers, is ui.spec.ts.
+test.beforeEach(async ({ context, baseURL }, testInfo) => {
+  await signIn(context, baseURL!, testInfo);
 });
 
 test('renders a bulb card for the seeded bulb', async ({ page }) => {
@@ -182,4 +168,22 @@ test('the throttle notice cleans its URL and dismisses itself', async ({ page })
   // A reload now starts clean, because the URL no longer carries the flag.
   await page.reload();
   await expect(page.locator('#busy-panel')).toBeHidden();
+});
+
+test('a button in the details dialog pressed from the keyboard keeps the dialog open', async ({ page }) => {
+  // The dialog closes on a click outside its box. A click made with the
+  // keyboard carries the coordinates (0, 0), which used to count as outside:
+  // pressing Enter on Save name saved and then closed the dialog under the
+  // keyboard user (2026-11-10).
+  await page.goto('/');
+  await page.locator('.bulb-card[data-id="kauf-bulb-e2e"] .bulb-name').click();
+  const modal = page.locator('#bulb-modal');
+  await expect(page.locator('#modal-mac')).toHaveText('AA:BB:CC:DD:EE:FF');
+  const name = (await page.locator('#modal-name-input').inputValue()) || 'E2E Test Bulb';
+  await page.locator('#modal-name-save').focus();
+  const saved = page.waitForResponse((r) => r.url().endsWith('/name') && r.request().method() === 'POST');
+  await page.keyboard.press('Enter');
+  expect((await saved).status()).toBe(200);
+  await expect(page.locator('#modal-name')).toHaveText(name);
+  await expect(modal).toBeVisible();
 });

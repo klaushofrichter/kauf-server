@@ -90,6 +90,9 @@ Public web UI: https://bulbs.skylar.technology
 - `GET /auth/google/callback`, `GET /auth/logout` — OAuth plumbing for the
   web UI.
 - `GET /favicon.png` — unprotected, serves the site favicon.
+- Any unknown path — 404. A browser navigation (which prefers `text/html`)
+  gets a small "Page not found" page; every other client, including
+  anything that sends `Accept: */*`, keeps the JSON `{"error":"not found"}`.
 
 All of the above are also rate-limited, 30 requests per 15 minutes, to
 bound brute-force and runaway-client behavior.
@@ -174,12 +177,40 @@ npm install
 cp .env.example .env   # fill in real values
 npm run dev             # runs src/server.ts directly via tsx, no build step
 npm test                # runs the Vitest suite once (this is what gates CI)
-npm run test:e2e         # runs Playwright E2E tests against a mock bulb
-                          # server; separate from the CI-gating `npm test`,
-                          # but also run in CI as extra steps in the
-                          # GitHub Actions workflows
+npm run test:e2e         # Playwright, four browsers, against a mock bulb
+                          # (see "Browsers, accessibility and speed" below)
 npm run build            # compiles src/ -> dist/
 npm start                # runs the compiled dist/server.js
+```
+
+### Browsers, accessibility and speed
+
+kube-setup's "public web pages" baseline
+(`docs/cluster-deployment-requirements.md`, §4) applied to a service with
+almost no public pages: a signed-out `/` goes straight to Google, so the
+public surface is the sign-in hand-over, the 404 page, the favicon and
+`/health` (`test/e2e/public.spec.ts`). The signed-in bulb panel is what people
+use, from phones too, so it gets the same treatment with a test session
+(`test/e2e/ui.spec.ts`, read-only); the tests that change the bulb
+(`test/e2e/bulbs.spec.ts`) run in desktop Chromium only.
+
+- On every pull request, inside the `test` job: the Docker image the commit
+  builds, with a mock bulb (`test/e2e/mock-bulb.ts`), in desktop Chrome, a
+  Pixel, an iPhone (WebKit) and desktop Firefox; axe-core at WCAG 2.2 AA with
+  zero violations and no text whose contrast axe could not judge; layout shift
+  under 0.02; a phone budget (page under 30 KB, icon under 10 KB and no wider
+  than twice its drawn size); then Lighthouse on a phone against the
+  signed-in panel (`scripts/lighthouse-gate.sh`: performance at least 90 on
+  the median of 3 runs, the rest 100 in every run). A test that passes only on
+  its retry fails the run (`failOnFlakyTests`).
+- After every release and daily, `live-check.yml` runs the `@live` tests
+  against production and checks `/health` reports the release. They never
+  sign in, POST, send a token or call a bulb route. There is no live
+  Lighthouse: the only public 200 page is Google's.
+
+```bash
+npx playwright test                                  # starts the server itself
+BASE_URL=https://bulbs.skylar.technology npx playwright test --grep @live
 ```
 
 ## Environment variables
@@ -213,7 +244,7 @@ can be re-derived from a fresh scan, and the PVC is backed up via Velero.
   gate. `production` is a protected branch requiring the `test` and `codeql`
   checks, so promotion goes through a PR from `main`; it can no longer be
   pushed to directly. (E2E is not a separate required context here — the
-  Playwright suite runs inside the `test` job.)
+  Playwright suite and Lighthouse run inside the `test` job.)
 - Merge into `production` → cuts a release (see below), image built/pushed
   tagged with the commit SHA, the version, and `latest`; `kube-setup`'s
   `manifests/bulbs/bulbs-ksvc.yaml` updated with the new (SHA-tagged) image
