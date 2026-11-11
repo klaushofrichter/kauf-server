@@ -27,9 +27,9 @@ function renderBulbList(bulbs: BulbWithState[]): string {
       const iconColor =
         bulb.online && bulb.on && bulb.r !== null ? `rgb(${bulb.r},${bulb.g},${bulb.b})` : '#999';
       return `
-    <div class="bulb-card ${statusClass}" data-id="${escapeHtml(bulb.id)}" tabindex="0" role="button">
+    <div class="bulb-card ${statusClass}" data-id="${escapeHtml(bulb.id)}">
       <svg class="bulb-icon" viewBox="0 0 24 24" style="--bulb-color: ${iconColor}"><path d="${BULB_ICON_PATH}"/></svg>
-      <span class="bulb-name">${escapeHtml(bulb.name)}</span>
+      <button type="button" class="bulb-name">${escapeHtml(bulb.name)}</button>
       <span class="bulb-status">${statusText}</span>
       <form class="bulb-toggle-form" method="POST" action="/ui/bulb/${encodeURIComponent(bulb.id)}/toggle">
         <button type="submit" ${bulb.online ? '' : 'disabled'}>${bulb.on ? 'Turn off' : 'Turn on'}</button>
@@ -55,10 +55,14 @@ export function renderPage(
   <meta charset="utf-8">
   <title>Kauf Bulbs</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Switch and adjust the Kauf smart bulbs on the home network.">
   <link rel="icon" type="image/png" href="/favicon.png">
   <style>
     body { font-family: system-ui, sans-serif; max-width: 960px; margin: 3rem auto; padding: 0 1rem; }
-    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
+    header { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; overflow-wrap: anywhere; }
+    /* WCAG 2.2 target size: at least 24px, which the browsers' default
+       button (about 21px tall) is not. */
+    button { min-height: 24px; }
     h1 { display: flex; align-items: center; gap: 0.5rem; margin: 0; }
     /* Scales with the heading rather than a fixed pixel size, so it stays
        proportional if the type size ever changes. Sized above 1em because
@@ -69,9 +73,9 @@ export function renderPage(
     .title-icon { height: 1.6em; width: auto; margin-left: -0.15em; }
     a.logout { color: #666; text-decoration: none; font-size: 0.9rem; }
     a.logout:hover { text-decoration: underline; }
-    .app-version { color: #999; font-size: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
+    .app-version { color: #666; font-size: 0.8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
     .app-version:hover { text-decoration: underline; }
-    #bulbs-empty { color: #888; font-style: italic; }
+    #bulbs-empty { color: #666; font-style: italic; }
     .toolbar { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
     .toolbar form { margin: 0; }
     .toolbar button[disabled], .bulb-toggle-form button[disabled] { opacity: 0.5; cursor: default; }
@@ -83,13 +87,19 @@ export function renderPage(
     .bulb-card { background: #fafafa; border: 1px solid #eee; border-radius: 0.5rem; padding: 1rem; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; cursor: pointer; }
     .bulb-icon { width: 48px; height: 48px; fill: var(--bulb-color, #999); transition: fill 0.2s; }
     .bulb-card.offline .bulb-icon { fill: #ccc; }
-    .bulb-name { font-weight: 600; text-align: center; }
+    /* A real button, so the card's details open from the keyboard without
+       the card itself being a button around another button (its on/off
+       form), which screen readers cannot represent. Looks like the text it
+       replaced. */
+    .bulb-name { font: inherit; font-weight: 600; text-align: center; color: inherit; background: none; border: none; padding: 0.1rem 0.25rem; cursor: pointer; }
     .bulb-status { font-size: 0.85rem; padding: 0.2rem 0.6rem; border-radius: 1rem; }
     .bulb-card.on .bulb-status { background: #d4f7d4; color: #1a6b1a; }
     .bulb-card.off .bulb-status { background: #eee; color: #555; }
     .bulb-card.offline .bulb-status { background: #f7d4d4; color: #8b1a1a; }
     .bulb-toggle-form { margin: 0; }
-    dialog#bulb-modal { border: none; border-radius: 0.75rem; padding: 2rem; max-width: 460px; width: 92%; }
+    /* border-box and wrapping rows below, so the dialog fits a phone: it
+       measured 443px wide in a 412px screen and lost its edges. */
+    dialog#bulb-modal { box-sizing: border-box; border: none; border-radius: 0.75rem; padding: 2rem; max-width: min(460px, calc(100vw - 1rem)); width: 92%; }
     dialog#bulb-modal::backdrop { background: rgba(0, 0, 0, 0.4); }
     .modal-close { float: right; background: none; border: none; font-size: 1.75rem; cursor: pointer; line-height: 1; }
     #modal-error { color: #8b1a1a; font-size: 0.9rem; margin: 0; min-height: 1.2em; }
@@ -99,10 +109,12 @@ export function renderPage(
     #bulb-modal label { display: block; margin: 1rem 0; font-weight: 600; }
     #bulb-modal input[type="range"] { width: 100%; margin-top: 0.35rem; }
     .modal-name-row { display: flex; gap: 0.5rem; align-items: center; margin: 1rem 0; }
-    .modal-name-row input[type="text"] { flex: 1; padding: 0.5rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 0.35rem; }
-    .modal-color-row { display: flex; gap: 1rem; align-items: center; margin-top: 0.35rem; }
+    /* min-width: 0, or the field keeps its default ~20-character width in a
+       phone-wide dialog and runs under the Save name button. */
+    .modal-name-row input[type="text"] { flex: 1; min-width: 0; padding: 0.5rem; font-size: 1rem; border: 1px solid #ccc; border-radius: 0.35rem; }
+    .modal-color-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-top: 0.35rem; }
     #modal-color { width: 4rem; height: 4rem; padding: 0; border: 1px solid #ccc; border-radius: 0.35rem; cursor: pointer; }
-    .modal-rgb-inputs { display: flex; gap: 0.5rem; }
+    .modal-rgb-inputs { display: flex; flex-wrap: wrap; gap: 0.5rem; }
     .modal-rgb-inputs label { margin: 0; font-weight: normal; font-size: 0.8rem; color: #666; display: flex; flex-direction: column; gap: 0.15rem; }
     .modal-rgb-inputs input[type="number"] { width: 4rem; padding: 0.35rem; font-size: 0.95rem; border: 1px solid #ccc; border-radius: 0.35rem; }
     #modal-set { margin-top: 2rem; padding: 0.6rem 1.2rem; font-size: 1rem; }
@@ -110,7 +122,7 @@ export function renderPage(
 </head>
 <body>
   <header>
-    <h1><img src="/favicon.png" alt="" class="title-icon">Kauf Bulbs</h1>
+    <h1><img src="/favicon.png" alt="" class="title-icon" width="192" height="202">Kauf Bulbs</h1>
     <div>
       <a id="app-version" class="app-version" href="${REPO_URL}" target="_blank" rel="noopener noreferrer"
          title="kauf-server on GitHub">${escapeHtml(appVersion())}</a> &middot;
@@ -319,15 +331,8 @@ export function renderPage(
         if (event.target.closest('.bulb-toggle-form')) return;
         openModal(card.getAttribute('data-id'));
       });
-
-      grid.addEventListener('keydown', function (event) {
-        if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Spacebar') return;
-        var card = event.target.closest('.bulb-card');
-        if (!card) return;
-        if (event.target.closest('.bulb-toggle-form')) return;
-        event.preventDefault();
-        openModal(card.getAttribute('data-id'));
-      });
+      // No keydown handler: the name is a real button, so Enter and Space
+      // reach the click handler above.
     }
 
     modal.addEventListener('click', function (event) {
@@ -335,6 +340,13 @@ export function renderPage(
       // misfires here: closing the native color-picker popup dispatches a
       // click whose target is the dialog itself, not just a real backdrop
       // click. Compare against the dialog's actual box instead.
+      //
+      // And only a click ON the dialog element can be a backdrop click. A
+      // click made with the keyboard (Enter on Save name, Set, Turn off)
+      // targets that button and carries the coordinates (0, 0), which the box
+      // test alone took for "outside": the dialog closed under the keyboard
+      // user. e2e: bulbs.spec.ts, "keeps the dialog open".
+      if (event.target !== modal) return;
       var rect = modal.getBoundingClientRect();
       var inDialog =
         event.clientX >= rect.left &&

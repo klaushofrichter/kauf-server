@@ -12,6 +12,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -30,11 +31,86 @@ jobs:
 
       - run: npm test
 
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+      # From here on: kube-setup's "public web pages" baseline
+      # (docs/cluster-deployment-requirements.md, §4), adapted from
+      # klaushofrichter/www-klaushofrichter. It stays INSIDE this job on
+      # purpose: `test` is the check `production` requires, and a separate
+      # `e2e` job would gate nothing until it was added to the required list.
+      #
+      # It tests the Docker image this commit builds, the artifact the deploy
+      # ships, with the mock bulb from test/e2e/fixture.ts on the runner's
+      # 127.0.0.1 (host networking). CI never reaches a real bulb or network.
+      - name: Build and start the image, and the mock bulb
+        run: |
+          set -euo pipefail
+          docker build --build-arg APP_VERSION=2099.01.01.1 -t kauf-server:e2e .
+          nohup npx tsx test/e2e/mock-bulb.ts > mock-bulb.log 2>&1 &
+          for i in $(seq 1 30); do [ -f .e2e-data/bulbs.json ] && break; sleep 1; done
+          # The image runs as uid 1000, the runner as another user, and the
+          # store writes a temp file beside bulbs.json.
+          chmod -R a+rwX .e2e-data
+          docker run -d --name kauf --network host \
+            -e PORT=8080 \
+            -e GOOGLE_CLIENT_ID=e2e -e GOOGLE_CLIENT_SECRET=e2e \
+            -e GOOGLE_REDIRECT_URI=http://localhost:8080/auth/google/callback \
+            -e COOKIE_SECRET=e2e-test-cookie-secret \
+            -e ALLOWED_EMAILS=e2e@example.com \
+            -e BULBS_API_TOKENS=e2e-test-token \
+            -e BULBS_DATA_PATH=/data/bulbs.json \
+            -e BULB_SCAN_CIDR=127.0.0.1/32 -e BULB_SCAN_INTERVAL_MS=86400000 \
+            -v "$PWD/.e2e-data:/data" \
+            kauf-server:e2e
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8080/health >/dev/null && break
+            echo "waiting for the image (${i}/30)"; sleep 1
+          done
+          curl -sf http://localhost:8080/health | grep -q '"version":"2099.01.01.1"' \
+            || { echo "::error::the image did not come up with the stamped version"; docker logs kauf; exit 1; }
 
-      - name: Run E2E tests
-        run: npm run test:e2e
+      # `--with-deps` runs `apt-get update`, which also reads the Google
+      # Chrome source the runner image ships; one bad index there fails the
+      # whole job (it did, 2026-09-09, in art), so drop that source. The Chrome
+      # binary itself stays: Lighthouse uses it below.
+      - name: Install the browsers
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome.sources
+          npx playwright install --with-deps chromium webkit firefox
+
+      # Desktop Chrome, an Android phone, an iPhone (WebKit) and desktop
+      # Firefox. failOnFlakyTests (playwright.config.ts) fails this step if any
+      # test passed only on its retry.
+      - name: E2E in four browsers, against the image
+        env:
+          BASE_URL: http://localhost:8080
+          EXPECT_VERSION: 2099.01.01.1
+        run: npx playwright test
+
+      # The signed-in panel, because a signed-out `/` is Google's page, not
+      # ours (scripts/lighthouse-gate.sh explains). The session is a made-up
+      # test user signed with the test secret above.
+      - name: Lighthouse (Google PageSpeed) on a phone, signed in
+        run: |
+          set -euo pipefail
+          LH_SESSION=$(COOKIE_SECRET=e2e-test-cookie-secret npx tsx scripts/e2e-session.ts lighthouse@example.com) \
+            scripts/lighthouse-gate.sh http://localhost:8080/
+
+      - name: Keep the reports when something failed
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-reports
+          path: |
+            playwright-report/
+            test-results/
+            lighthouse-report.report.html
+          retention-days: 14
+
+      - name: Server and mock bulb logs when something failed
+        if: failure()
+        run: |
+          docker logs kauf || true
+          cat mock-bulb.log || true
 
       # Dependabot notices a vulnerable dependency, but noticing is not
       # blocking: without this step a package with a known advisory can be

@@ -7,6 +7,7 @@ import { healthRouter } from './routes/health';
 import { bulbsRouter } from './routes/bulbs';
 import { authRouter } from './routes/auth';
 import { indexRouter } from './routes/index';
+import { renderNotFoundPage } from './views/notFound';
 
 export function createApp(): Express {
   const app = express();
@@ -32,7 +33,16 @@ export function createApp(): Express {
   app.use(authRouter);
   app.use(indexRouter);
 
-  app.use((_req: Request, res: Response) => {
+  // A browser that lands on an unknown address gets a page; everything else
+  // (curl, the devices on the LAN, fetch() calls) keeps the JSON body. json
+  // is listed first, so a client that accepts anything (`*/*`) gets JSON as
+  // before; only one that prefers text/html, as a browser navigation does,
+  // gets the page.
+  app.use((req: Request, res: Response) => {
+    if (req.accepts(['json', 'html']) === 'html') {
+      res.status(404).type('html').send(renderNotFoundPage());
+      return;
+    }
     res.status(404).json({ error: 'not found' });
   });
 
