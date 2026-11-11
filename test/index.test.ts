@@ -105,7 +105,7 @@ describe('GET /', () => {
 
     const response = await request(app).get('/').set('Cookie', cookie);
 
-    expect(response.text).toContain('<img src="/favicon.png" alt="" class="title-icon">');
+    expect(response.text).toContain('<img src="/favicon.png" alt="" class="title-icon" width="192" height="202">');
     // Decorative: the heading text beside it already names the page, so it
     // must not be announced twice.
     expect(response.text).toContain('alt=""');
@@ -224,6 +224,26 @@ describe('GET /nonexistent', () => {
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({ error: 'not found' });
+  });
+
+  it('keeps JSON for a client that accepts anything, as curl and the LAN devices do', async () => {
+    const app = createApp();
+    const response = await request(app).get('/nonexistent').set('Accept', '*/*');
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'not found' });
+  });
+
+  it('shows a 404 page to a browser navigation', async () => {
+    const app = createApp();
+    const response = await request(app)
+      .get('/nonexistent')
+      .set('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8');
+
+    expect(response.status).toBe(404);
+    expect(response.headers['content-type']).toMatch(/^text\/html/);
+    expect(response.text).toContain('<h1>Page not found</h1>');
+    expect(response.text).toContain('<a href="/">');
   });
 });
 

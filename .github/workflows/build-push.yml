@@ -27,8 +27,11 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      # Desktop Chromium only: this publishes the moving `main` tag after the
+      # merge. The full gate (four browsers, the Docker image, Lighthouse) ran
+      # on the pull request, in production-checks.yml.
       - name: Run E2E tests
-        run: npm run test:e2e
+        run: npm run test:e2e -- --project desktop-chromium
 
       - name: Log in to ghcr.io
         uses: docker/login-action@v4

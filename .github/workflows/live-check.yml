@@ -1,0 +1,90 @@
+name: Live check
+
+# The release, checked from outside after it has gone live: the read-only part
+# of the e2e suite (tests tagged @live) in four browsers, pointed at
+# https://bulbs.skylar.technology, and /health must name the release just cut.
+# After each successful deploy, and once a day so a break between releases is
+# noticed too. kube-setup's "public web pages" baseline
+# (docs/cluster-deployment-requirements.md, §4).
+#
+# deploy-production.yml already smoke-tests with curl from the in-cluster
+# runner; this adds what curl cannot see (real browsers, the 404 page,
+# accessibility). A browser cannot run on the in-cluster runner (512Mi), so it
+# runs here, on GitHub's runners.
+#
+# @live tests never sign in, never POST, never send an API token and never
+# call a bulb route: they cannot change a real bulb. They run from GitHub's
+# addresses, so the one limited request they make (a signed-out GET /, once
+# per run) never touches the household's rate-limit budget.
+#
+# No Lighthouse here, unlike the other sites: this service has no public page
+# that Lighthouse can measure. A signed-out `/` is a 302 to Google's sign-in,
+# so Lighthouse would score Google, and it refuses the 404 page outright
+# (ERRORED_DOCUMENT_REQUEST). The signed-in panel is measured in CI instead,
+# on every pull request (production-checks.yml).
+on:
+  workflow_run:
+    workflows: [Deploy production]
+    types: [completed]
+  schedule:
+    - cron: '23 11 * * *'   # 05:23 Chicago (CST), outside the busy hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-check
+  cancel-in-progress: false
+
+jobs:
+  live:
+    # After a deploy only if it succeeded; a failed deploy cut no release.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BASE_URL: https://bulbs.skylar.technology
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+
+      - run: npm ci
+
+      # The newest release is what must be live: after a deploy it is the one
+      # that deploy cut (the release step runs last, after the rollout).
+      - name: Which release should be live
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "expecting ${tag}"
+
+      - name: Install the browsers
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
+                     /etc/apt/sources.list.d/google-chrome.sources
+          npx playwright install --with-deps chromium webkit firefox
+
+      - name: Check the live site in four browsers
+        env:
+          CI: 'true'
+          EXPECT_VERSION: ${{ steps.rel.outputs.version }}
+        run: npx playwright test --grep @live
+
+      - name: Keep the reports when something failed
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-check-reports
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 30
