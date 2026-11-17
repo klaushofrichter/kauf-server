@@ -122,7 +122,7 @@ jobs:
       # This lives in the `test` job deliberately. As a separate job it would
       # gate nothing until someone remembered to add it to the required-checks
       # list; here it rides on a job that is already required.
-      - run: npm audit --audit-level=high
+      - run: node scripts/npm-audit.mjs
 
   codeql:
     runs-on: ubuntu-latest
