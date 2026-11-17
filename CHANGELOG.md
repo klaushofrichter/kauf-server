@@ -13,6 +13,13 @@ this file is where notes are written *before* a release, not an archive of them.
      notes. Keep prose out of it unless you mean it to be published. -->
 ## [Unreleased]
 
+### Maintenance
+
+- CI: the dependency audit lets one advisory through until 2026-12-17:
+  picomatch's ReDoS (GHSA-fc5q-39xc-vjpf), which has no fixed version yet and
+  reaches only the test and build tools, not the running service.
+  `scripts/npm-audit-allow.json` holds the entry; after that date it blocks again.
+
 ### Accessibility and phones
 
 - The bulb details dialog now fits a phone screen. On a Pixel it was 443 px
